@@ -1,7 +1,7 @@
 import torch
 from examples.module.controller_parameters_tuner.waypoint import WayPoint
-from trajectory_gen import PolynomialTrajectoryGenerator
-from commons import quaternion_2_rotation_matrix, rotation_matrix_2_quaternion
+from examples.module.controller_parameters_tuner.trajectory_gen import PolynomialTrajectoryGenerator
+from examples.module.controller_parameters_tuner.commons import quaternion_2_rotation_matrix, rotation_matrix_2_quaternion
 
 from examples.module.controller.SE3_controller import SE3Controller
 from examples.module.dynamics.multicopter import MultiCopter
@@ -23,10 +23,10 @@ def get_ref_states(waypoints, dt):
     for wp in quad_trajectory[1:]:
         position_tensor = torch.tensor([wp.position.x, wp.position.y, wp.position.z]).reshape([3,1]).double()
         velocity_tensor = torch.tensor([wp.vel.x, wp.vel.y, wp.vel.z]).reshape([3,1]).double()
-        # minus gravity acc if choose upwards as the positive z-axis 
+        # minus gravity acc if choose upwards as the positive z-axis
         raw_acc_tensor = torch.tensor([wp.acc.x, wp.acc.y, wp.acc.z]).reshape([3,1]).double()
         acc_tensor = torch.tensor([wp.acc.x, wp.acc.y, wp.acc.z - g]).reshape([3,1]).double()
-        
+
         # assume the yaw angle stays at 0
         b3_ref = (-acc_tensor / torch.norm(acc_tensor)).double()
         b1_yaw_tensor = torch.tensor([1., 0., 0.]).reshape([3, 1]).double()
@@ -59,7 +59,7 @@ def compute_loss(dynamic_system, controller, controller_parameters, initial_stat
       ref_position, ref_velocity, ref_acceleration, ref_pose, ref_angular_vel, ref_angular_acc = ref_state
       controller_input = controller.get_control(controller_parameters, system_state, ref_state, None)
       system_new_state = dynamic_system.state_transition(system_state, controller_input, dt)
-      
+
       position, pose, vel, angular_vel = system_new_state[0:3], system_new_state[3:7], system_new_state[7:10], system_new_state[10:13]
 
       system_state = system_new_state
@@ -70,9 +70,9 @@ def compute_loss(dynamic_system, controller, controller_parameters, initial_stat
     return loss / len(ref_states)
 
 def func_to_get_state_error(state, ref_state):
-    
+
     ref_position, ref_velocity, ref_acceleration, ref_pose, ref_angular_vel, ref_angular_acc = ref_state
-    
+
     return state - torch.vstack(
        [
           ref_position,
@@ -104,19 +104,19 @@ if __name__ == "__main__":
     ref_states = get_ref_states(quadrotor_waypoints, time_interval)
 
 
-    multicopter = MultiCopter(time_interval, 
-                               torch.tensor(g), 
+    multicopter = MultiCopter(time_interval,
+                               torch.tensor(g),
                                torch.tensor([
                                   [0.0829, 0., 0.],
                                   [0, 0.0845, 0],
                                   [0, 0, 0.1377]
                                 ]))
-    
+
     # start to tune the controller parameters
     max_tuning_iterations = 30
     tuning_times = 0
     tuner = ControllerParametersTuner(learning_rate=learning_rate)
-    
+
     controller = SE3Controller(multicopter.m, multicopter.J)
     controller_parameters = torch.clone(initial_controller_parameters)
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     states_to_tune[0, 0] = 1
     states_to_tune[1, 1] = 1
     states_to_tune[2, 2] = 1
-    
+
     while tuning_times < max_tuning_iterations:
         controller_parameters = tuner.tune(
           multicopter,
