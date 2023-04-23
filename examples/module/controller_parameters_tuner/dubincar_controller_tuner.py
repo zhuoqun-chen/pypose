@@ -1,3 +1,4 @@
+import argparse, os
 import torch
 from examples.module.controller_parameters_tuner.waypoint import WayPoint
 from examples.module.controller_parameters_tuner.trajectory_gen import PolynomialTrajectoryGenerator
@@ -77,15 +78,28 @@ def func_to_get_state_error(state, ref_state):
           ref_pose,
           torch.norm(torch.tensor(ref_velocity[0])),
           ref_angular_vel
-       ]
+       ], device=state.device
     ).reshape((5, 1))
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description='Cartpole Example')
+    parser.add_argument("--device", type=str, default='cpu', help="cuda or cpu")
+    parser.add_argument("--save", type=str, default='./examples/module/dynamics/save/',
+                        help="location of png files to save")
+    parser.add_argument('--show', dest='show', action='store_true',
+                        help="show plot, default: False")
+    parser.set_defaults(show=False)
+    args = parser.parse_args(); print(args)
+    os.makedirs(os.path.join(args.save), exist_ok=True)
+
     # program parameters
     time_interval = 0.05
     learning_rate = 0.5
-    initial_state = torch.tensor([0, 0, 0, 0, 0]).reshape([5, 1]).double()
-    initial_controller_parameters = torch.tensor([10., 1., 1., 1.]).reshape([4, 1]).double()
+    initial_state = torch.tensor([0, 0, 0, 0, 0], device=args.device) \
+      .reshape([5, 1]).double()
+    initial_controller_parameters = torch.tensor([10., 1., 1., 1.], device=args.device) \
+      .reshape([4, 1]).double()
 
     dubin_car_waypoints = [
       WayPoint(0, 0, 0, 0),
@@ -102,13 +116,14 @@ if __name__ == "__main__":
     # start to tune the controller parameters
     max_tuning_iterations = 30
     tuning_times = 0
-    tuner = ControllerParametersTuner(learning_rate=learning_rate)
+    tuner = ControllerParametersTuner(learning_rate=learning_rate, device=args.device)
 
     controller = DubinCarController()
     controller_parameters = torch.clone(initial_controller_parameters)
 
     # only tune positions
-    states_to_tune = torch.zeros([len(initial_state), len(initial_state)])
+    states_to_tune = torch.zeros([len(initial_state), len(initial_state)]
+      , device=args.device)
     states_to_tune[0, 0] = 1
     states_to_tune[1, 1] = 1
 

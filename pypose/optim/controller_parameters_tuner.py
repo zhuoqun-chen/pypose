@@ -2,8 +2,9 @@ import torch
 from torch.autograd.functional import jacobian
 
 class ControllerParametersTuner():
-    def __init__(self, learning_rate):
+    def __init__(self, learning_rate, device):
         self.learning_rate = learning_rate
+        self.device = device
 
     def tune(self, dynamic_system, initial_state, ref_states, controller, parameters, parameters_tuning_set, tau, states_to_tune, func_get_state_error):
         states_to_tune = states_to_tune.double()
@@ -13,7 +14,10 @@ class ControllerParametersTuner():
         system_state = torch.clone(initial_state)
         controller_parameters = parameters
         states.append(system_state)
-        dxdparam_gradients.append(torch.zeros([len(initial_state), len(controller_parameters)]).double())
+        dxdparam_gradients.append(
+            torch.zeros(
+                [len(initial_state), len(controller_parameters)], device=self.device)
+            .double())
 
         for index, ref_state in enumerate(ref_states):
             controller_input = controller.get_control(parameters=controller_parameters, state=system_state, ref_state=ref_state, feed_forward_quantity=None)
@@ -41,7 +45,7 @@ class ControllerParametersTuner():
             )
 
         # accumulate the gradients
-        gradient_sum = torch.zeros([len(parameters), 1]).double()
+        gradient_sum = torch.zeros([len(parameters), 1], device=self.device).double()
         for ref_state_index in range(0, len(ref_states)):
             state_error = func_get_state_error(states[ref_state_index + 1], ref_states[ref_state_index])
             state_error = torch.mm(torch.t(state_error), states_to_tune)

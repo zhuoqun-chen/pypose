@@ -1,17 +1,13 @@
 import torch
 
-def get_tensor_item(tensor):
-  if torch.is_tensor(tensor):
-    return tensor.item()
-  else:
-    return 0.
-
 def hat(vector):
+  device = vector.device
   vector = vector.reshape([3, 1])
+  zerotensor = torch.tensor([0.], device=device)
   return torch.stack([
-    torch.stack([torch.tensor([0.]), -vector[2], vector[1]], dim=0),
-    torch.stack([vector[2], torch.tensor([0.]), -vector[0]], dim=0),
-    torch.stack([-vector[1], vector[0], torch.tensor([0.])], dim=0)
+    torch.stack([zerotensor, -vector[2], vector[1]], dim=0),
+    torch.stack([vector[2], zerotensor, -vector[0]], dim=0),
+    torch.stack([-vector[1], vector[0], zerotensor], dim=0)
   ]).reshape([3, 3])
 
 def vee(skew_symmetric_matrix):
@@ -22,11 +18,14 @@ def vee(skew_symmetric_matrix):
   ).reshape([3, 1])
 
 def quaternion_2_rotation_matrix(q):
+  device = q.device
   q = q / torch.norm(q)
   qahat = hat(q[1:4])
-  return (torch.eye(3) + 2 * torch.mm(qahat, qahat) + 2 * q[0] * qahat).double()
+  return (torch.eye(3, device=device)
+    + 2 * torch.mm(qahat, qahat) + 2 * q[0] * qahat).double()
 
 def rotation_matrix_2_quaternion(R):
+  device = R.device
   tr = R[0,0] + R[1,1] + R[2,2];
 
   if tr > 0:
@@ -54,7 +53,7 @@ def rotation_matrix_2_quaternion(R):
     qy = (R[1,2] + R[2,1]) / S
     qz = 0.25 * S
 
-  q = torch.tensor([[qw,qx,qy,qz]]).reshape([4,1])
+  q = torch.tensor([[qw,qx,qy,qz]], device=device).reshape([4,1])
   q = q * ((qw+0.00000001) / torch.abs(qw + 0.00000001))
   q = q / torch.norm(q)
 
@@ -73,8 +72,9 @@ def get_desired_angular_speed(original_ori, des_ori, dt):
   return get_shortest_path_between_angles(original_ori, des_ori) / dt
 
 def angular_vel_2_quaternion_dot(quaternion, w):
+  device = quaternion.device
   p, q, r = w
-  zero_t = torch.tensor([0.])
+  zero_t = torch.tensor([0.], device=device)
   return -0.5 * torch.mm(torch.stack(
     [
       torch.stack([zero_t, p, q, r]),
