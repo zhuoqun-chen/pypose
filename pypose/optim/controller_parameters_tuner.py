@@ -1,12 +1,46 @@
 import torch
 from torch.autograd.functional import jacobian
 
+
 class ControllerParametersTuner():
+    r"""
+    This class is the general implementation of the controller parameters tuner based on
+    the DiffTune paper.
+
+    Given a dynamic system, a corresponding controller and reference states, assuming all
+    these components are differentiable, it is possbile to find the most suitable
+    parameters by constructing the loss function $\mathbf{L}$ and computing the gradient of
+    $\mathbf{L}$ with respect to controller parameters.
+
+    .. math::
+        \begin{align*}
+            \mathbf{L} &= \sum_i^N ||x_i - \hat x_i||^2 \\
+            \nabla L_{\theta} = \sum_i^N \frac{\partial L}{x_i} \frac{x_i}{\theta}
+        \end{align*},
+    """
     def __init__(self, learning_rate, device):
         self.learning_rate = learning_rate
         self.device = device
 
-    def tune(self, dynamic_system, initial_state, ref_states, controller, parameters, parameters_tuning_set, tau, states_to_tune, func_get_state_error):
+    def tune(self, dynamic_system, initial_state, ref_states, controller, parameters,
+             parameters_tuning_set, tau, states_to_tune, func_get_state_error):
+        r"""
+        Args:
+            dynamic_system (pypose.module.dynamics):
+            initial_state (Tensor):
+            ref_states ():
+            controller (pypose.module.controller): Linear or nonlinear controller to control
+            the dynamic system
+            parameters (Tensor): Controller parameters
+            parameters_tuning_set (Tensor): This set gives the minimum and the maximum
+                value the parameters can reach
+            tau: time interval in system
+            states_to_tune (Tensor): choose which state needs to be considered in the
+                loss function, usually only position is chosen.
+            func_get_state_error (function): function has two inputs: system state and
+                ref state. The function needs to be provided by users considering system
+                state and ref state are not always in the same formation.
+        """
         states_to_tune = states_to_tune.double()
         states = []
         dxdparam_gradients = []

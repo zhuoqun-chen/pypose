@@ -1,11 +1,12 @@
 import argparse, os
 import torch
-from examples.module.controller_parameters_tuner.waypoint import WayPoint
-from examples.module.controller_parameters_tuner.trajectory_gen import PolynomialTrajectoryGenerator
-
 from examples.module.controller.dubincar_controller import DubinCarController
 from examples.module.dynamics.dubincar import DubinCar
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
+from examples.module.controller_parameters_tuner.waypoint import WayPoint
+from examples.module.controller_parameters_tuner.trajectory_gen \
+  import PolynomialTrajectoryGenerator
+
 
 def get_shortest_path_between_angles(original_ori, des_ori):
   e_ori = des_ori - original_ori
@@ -15,6 +16,7 @@ def get_shortest_path_between_angles(original_ori, des_ori):
     else:
       e_ori = des_ori + 2 * torch.pi - original_ori
   return e_ori
+
 
 def get_ref_states(waypoints, dt):
     traj_gen = PolynomialTrajectoryGenerator()
@@ -47,6 +49,7 @@ def get_ref_states(waypoints, dt):
         last_desired_state = car_desired_states[-1:][0]
     return car_desired_states
 
+
 def compute_loss(dynamic_system, controller, controller_parameters, initial_state, ref_states, dt):
     loss = 0
     system_state = torch.clone(initial_state)
@@ -66,20 +69,21 @@ def compute_loss(dynamic_system, controller, controller_parameters, initial_stat
       )
     return loss / len(ref_states)
 
+
 def func_to_get_state_error(state, ref_state):
     ref_position, ref_velocity, ref_acceleration, ref_pose, ref_angular_vel, ref_angular_acc = \
         ref_state[0:2], ref_state[2:4], ref_state[4:6], \
         ref_state[6], ref_state[7], ref_state[8]
 
-    return state - torch.tensor(
+    return state - torch.stack(
        [
           ref_position[0],
           ref_position[1],
           ref_pose,
           torch.norm(torch.tensor(ref_velocity[0])),
           ref_angular_vel
-       ], device=state.device
-    ).reshape((5, 1))
+       ], dim=0)
+
 
 if __name__ == "__main__":
 
@@ -96,10 +100,9 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.05
     learning_rate = 0.5
-    initial_state = torch.tensor([0, 0, 0, 0, 0], device=args.device) \
-      .reshape([5, 1]).double()
-    initial_controller_parameters = torch.tensor([10., 1., 1., 1.], device=args.device) \
-      .reshape([4, 1]).double()
+    initial_state = torch.stack([0, 0, 0, 0, 0], device=args.device).double()
+    initial_controller_parameters = \
+      torch.stack([10., 1., 1., 1.], device=args.device).double()
 
     dubin_car_waypoints = [
       WayPoint(0, 0, 0, 0),
@@ -142,4 +145,5 @@ if __name__ == "__main__":
         )
         tuning_times += 1
         print("Controller parameters: ", controller_parameters)
-        print("Loss: ", compute_loss(dubincar, controller, controller_parameters, initial_state, ref_states, time_interval))
+        print("Loss: ", compute_loss(dubincar, controller, controller_parameters,
+                                     initial_state, ref_states, time_interval))
