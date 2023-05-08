@@ -204,6 +204,348 @@ def test_dynamics_floquet():
     assert torch.allclose(c1, solver.c1, atol=1e-6)
     assert torch.allclose(c2_i, solver.c2)
 
+def test_dynamics_multicopter():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    """
+    For the system needs an input,
+    """
+    def angular_vel_2_quaternion_dot(quaternion, w):
+        device = quaternion.device
+        p, q, r = w
+        zero_t = torch.tensor([0.], device=device)
+        return -0.5 * torch.mm(torch.squeeze(torch.stack(
+            [
+                torch.stack([zero_t, p, q, r], dim=-1),
+                torch.stack([-p, zero_t, -r, q], dim=-1),
+                torch.stack([-q, r, zero_t, -p], dim=-1),
+                torch.stack([-r, -q, p, zero_t], dim=-1)
+            ])), quaternion)
+
+    def hat(vector):
+        device = vector.device
+        return torch.squeeze(torch.stack([
+            torch.stack([torch.tensor([0.], device=device), -vector[2], vector[1]], dim=-1),
+            torch.stack([vector[2], torch.tensor([0.], device=device), -vector[0]], dim=-1),
+            torch.stack([-vector[1], vector[0], torch.tensor([0.], device=device)], dim=-1)
+        ]))
+
+    def quaternion_2_rotation_matrix(q):
+        device = q.device
+        q = q / torch.norm(q)
+        qahat = hat(q[1:4])
+        return (torch.eye(3, device=device)
+            + 2 * torch.mm(qahat, qahat) + 2 * q[0] * qahat).double()
+
+    class MultiCopter(pp.module.NLS):
+        def __init__(self, dt, mass, g, J, e3):
+            super(MultiCopter, self).__init__()
+            self.m = mass
+            self.J = J.double()
+            self.J_inverse = torch.inverse(self.J)
+            self.g = g
+            self.e3 = e3
+            self.tau = dt
+
+        def state_transition(self, state, input, t=None):
+            k1 = self.derivative(state, input)
+            k2 = self.derivative(self.euler_update(state, k1, t / 2), input)
+            k3 = self.derivative(self.euler_update(state, k2, t / 2), input)
+            k4 = self.derivative(self.euler_update(state, k3, t), input)
+
+            return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
+
+        def observation(self, state, input, t=None):
+            return state
+
+        def euler_update(self, state, derivative, dt):
+            position, pose, vel, angular_speed = state[0:3], state[3:7], \
+                state[7:10], state[10:13]
+            vel, angular_derivative, acceleration, w_dot = derivative[0:3], derivative[3:7], \
+                derivative[7:10], derivative[10:13]
+
+            position_updated = position + vel * dt
+            pose_updated = pose + angular_derivative * dt
+            pose_updated = pose_updated / torch.norm(pose_updated)
+            vel_updated = vel + acceleration * dt
+            angular_speed_updated = angular_speed + w_dot * dt
+
+            return torch.concat(
+                [
+                    position_updated,
+                    pose_updated,
+                    vel_updated,
+                    angular_speed_updated
+                ]
+            )
+
+        def derivative(self, state, input):
+            position, pose, vel, angular_speed = state[0:3], state[3:7], \
+                state[7:10], state[10:13]
+            thrust, M = input[0], input[1:4]
+
+            pose_in_R = quaternion_2_rotation_matrix(pose)
+
+            acceleration = (torch.mm(pose_in_R, -thrust * self.e3)
+                            + self.m * self.g * self.e3) / self.m
+            w_dot = torch.mm(self.J_inverse,
+                            M - torch.cross(angular_speed, torch.mm(self.J, angular_speed)))
+            return torch.vstack([
+                    vel,
+                    angular_vel_2_quaternion_dot(pose, angular_speed),
+                    acceleration,
+                    w_dot
+                ]
+            )
+
+    # generate inputs for dubincar system
+    dt = 0.01
+    N  = 5
+    time = torch.arange(0, N + 1, device=device) * dt
+    # it's hard to generate inputs by hands, instead we use SE3 controller to
+    # get the inputs
+    inputs = torch.t(torch.tensor([
+        [ 0.000, 0.000, 0.000, 0.1962],
+        [ 1.9612e-01, -5.6856e-03,  2.8868e-03, -4.7894e-08],
+        [ 1.9590e-01, -6.3764e-03,  3.2420e-03, -3.8333e-07],
+        [ 1.9560e-01,  6.7747e-04, -3.3588e-04, -4.2895e-07],
+        [ 1.9523e-01,  7.0193e-03, -3.5589e-03,  3.3822e-07]
+    ]).double())
+
+    # Initial state
+    state = torch.t(torch.tensor([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]], device=device)).double()
+
+    # Create dynamics solver object
+    e3 = torch.stack([
+        torch.tensor([0.]),
+        torch.tensor([0.]),
+        torch.tensor([1.])]
+      ).to(device=device).double()
+    g = 9.81
+    mass = 0.19
+    multicopterSolver = MultiCopter(dt,
+                               torch.tensor(g, device=device),
+                               torch.tensor(mass, device=device),
+                               torch.tensor([
+                                  [0.0829, 0., 0.],
+                                  [0, 0.0845, 0],
+                                  [0, 0, 0.1377]
+                                ], device=device),
+                                e3)
+
+    # Calculate trajectory
+    state_all = torch.zeros(13, N + 1, device=device).double()
+    state_all[:, 0] = state.squeeze()
+    for i in range(N):
+        new_state, _ = multicopterSolver.forward(torch.t(state_all[:, i].unsqueeze(dim=0)), torch.t(inputs[:, i].unsqueeze(dim=0)))
+        state_all[:, i+1] = new_state.squeeze()
+
+    state_ref = torch.tensor([[ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+         -6.8088e-12],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+         -1.3676e-11],
+        [ 0.0000e+00,  0.0000e+00,  1.9000e-05,  5.5001e-05,  1.0800e-04,
+          1.7801e-04],
+        [ 1.0000e+00,  1.0000e+00,  1.0000e+00,  1.0000e+00,  1.0000e+00,
+          1.0000e+00],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00, -3.4293e-06, -1.0705e-05,
+         -1.7572e-05],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.7079e-06,  5.3333e-06,
+          8.7594e-06],
+        [ 0.0000e+00,  0.0000e+00,  7.1242e-05,  1.4248e-04,  2.1373e-04,
+          2.8497e-04],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00, -6.8088e-10,
+         -2.8028e-09],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00, -1.3676e-09,
+         -5.6289e-09],
+        [ 0.0000e+00,  1.9000e-03,  3.6001e-03,  5.3004e-03,  7.0010e-03,
+          8.7020e-03],
+        [ 0.0000e+00,  0.0000e+00, -6.8584e-04, -1.4550e-03, -1.3734e-03,
+         -5.2673e-04],
+        [ 0.0000e+00,  0.0000e+00,  3.4163e-04,  7.2524e-04,  6.8535e-04,
+          2.6406e-04],
+        [ 0.0000e+00,  1.4248e-02,  1.4248e-02,  1.4248e-02,  1.4248e-02,
+          1.4248e-02]], device=device).double()
+
+    assert torch.allclose(state_ref, state_all, rtol=1e-2)
+
+     # Jacobian computation - at the last step
+    jacob_state, jacob_input = torch.t(state_all[:, -1].unsqueeze(dim=0)), torch.t(inputs[:, -1].unsqueeze(dim=0))
+    multicopterSolver.set_refpoint(state=jacob_state, input=jacob_input, t=time[-1])
+
+    A_ref = torch.tensor([[ 1.0000e+00,  0.0000e+00,  0.0000e+00,  1.1249e-10, -4.7260e-09,
+         -1.6584e-05,  2.2512e-10,  1.0000e-02,  0.0000e+00,  0.0000e+00,
+         -8.7113e-11, -1.0365e-07, -1.1580e-12],
+        [ 0.0000e+00,  1.0000e+00,  0.0000e+00,  2.2553e-10,  1.6584e-05,
+         -4.7260e-09, -1.1262e-10,  0.0000e+00,  1.0000e-02,  0.0000e+00,
+          1.0365e-07, -8.7013e-11,  5.7281e-13],
+        [ 0.0000e+00,  0.0000e+00,  1.0000e+00, -1.1712e-14, -5.1648e-10,
+          2.5802e-10,  6.5242e-18,  0.0000e+00,  0.0000e+00,  1.0000e-02,
+         -2.8126e-12,  1.4106e-12,  2.0876e-19],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.0000e+00, -7.9515e-06,
+          3.9421e-06, -7.1242e-05,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+         -1.1089e-07,  5.4838e-08, -3.2059e-06],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00, -4.4096e-07,  1.0000e+00,
+          7.1242e-05,  3.9397e-06,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          5.0000e-03, -2.5678e-06,  1.2271e-07],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  2.1598e-07, -7.1242e-05,
+          1.0000e+00,  7.9527e-06,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          2.5799e-06,  5.0000e-03,  2.4780e-07],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.1874e-05, -3.9410e-06,
+         -7.9520e-06,  1.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+         -8.7124e-08, -1.7730e-07,  5.0000e-03],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  8.7524e-10, -1.1342e-07,
+         -3.9802e-04, -1.8104e-09,  1.0000e+00,  0.0000e+00,  0.0000e+00,
+         -4.7833e-09, -4.9753e-06, -1.6052e-10],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.7174e-09,  3.9802e-04,
+         -1.1342e-07,  8.6377e-10,  0.0000e+00,  1.0000e+00,  0.0000e+00,
+          4.9753e-06, -4.7753e-09,  7.9221e-11],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00, -2.7475e-13, -5.1837e-09,
+          2.6226e-09,  6.0075e-16,  0.0000e+00,  0.0000e+00,  1.0000e+00,
+          1.1416e-12,  1.0106e-13,  1.1610e-17],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          1.0000e+00, -9.1437e-05,  5.0599e-06],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          9.2404e-05,  1.0000e+00,  1.0313e-05],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+          9.1577e-08, -1.8480e-07,  1.0000e+00]],
+        device=device).double()
+    B_ref = torch.tensor([[-6.6043e-10, -1.1580e-11, -1.2266e-08, -1.9926e-13],
+        [-1.3229e-09,  1.2503e-08, -1.1360e-11,  9.8899e-14],
+        [-4.2474e-05,  5.7744e-14, -2.6756e-14,  2.3180e-20],
+        [ 0.0000e+00, -3.3445e-08,  1.6213e-08, -5.8204e-07],
+        [ 0.0000e+00,  1.5078e-03, -8.2263e-07,  1.7597e-08],
+        [ 0.0000e+00,  8.4094e-07,  1.4793e-03,  3.5543e-08],
+        [ 0.0000e+00, -1.6325e-08, -3.2929e-08,  9.0777e-04],
+        [-6.7130e-09, -1.0419e-09, -9.8132e-07, -2.7713e-11],
+        [-1.3278e-08,  1.0003e-06, -1.0210e-09,  1.3682e-11],
+        [-1.0194e-03,  2.4503e-11, -1.1813e-11,  1.5207e-18],
+        [ 0.0000e+00,  1.2063e-01, -2.7052e-05,  1.3274e-06],
+        [ 0.0000e+00,  2.7866e-05,  1.1834e-01,  2.7033e-06],
+        [ 0.0000e+00,  3.9915e-08, -7.8931e-08,  7.2622e-02]], device=device).double()
+    C_ref = torch.eye(13, device=device).double()
+    D_ref = torch.zeros((13,1), device=device).double()
+    c1_ref = torch.tensor([-1.9049e+03,  3.3062e+03,  0.0000e+00,
+                           1.7764e-15,  1.7764e-15], device=device).double()
+    c2_ref = torch.zeros((13,), device=device).double()
+
+    assert torch.allclose(A_ref, multicopterSolver.A, atol=1e-1)
+    assert torch.allclose(B_ref, multicopterSolver.B, atol=1e-4)
+    assert torch.allclose(C_ref, multicopterSolver.C)
+    assert torch.allclose(D_ref, multicopterSolver.D)
+    assert torch.allclose(c1_ref, multicopterSolver.c1, atol=1e-1)
+    assert torch.allclose(c2_ref, multicopterSolver.c2)
+
+
+
+def test_dynamics_dubincar():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    class DubinCar(pp.module.NLS):
+        def __init__(self, dt):
+            super(DubinCar, self).__init__()
+            self.tau = dt
+
+        # Use RK4 to infer the k+1 state
+        def state_transition(self, state, input, t=None):
+            k1 = self.derivative(state, input)
+            k2 = self.derivative(self.euler_update(state, k1, self.tau / 2), input)
+            k3 = self.derivative(self.euler_update(state, k2, self.tau / 2), input)
+            k4 = self.derivative(self.euler_update(state, k3, self.tau), input)
+
+            return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
+
+        def observation(self, state, input, t=None):
+            return state
+
+        def derivative(self, state, input):
+            pos_x, pos_y, orientation, vel, w = state
+            # acceleration and angular acceleration
+            acc, w_dot = input
+
+            return torch.stack(
+                [
+                    vel * torch.cos(orientation),
+                    vel * torch.sin(orientation),
+                    w,
+                    acc,
+                    w_dot
+                ]
+            )
+
+        def euler_update(self, state, derivative, dt):
+            pos_x, pos_y, orientation, vel, w = state
+            vx, vy, angular_speed, acc, w_dot = derivative
+            return torch.stack(
+                [
+                    pos_x + vx * dt,
+                    pos_y + vy * dt,
+                    orientation + angular_speed * dt,
+                    vel + acc * dt,
+                    w + w_dot * dt
+                ]
+            )
+    state_ref = torch.tensor([[ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00],
+        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00],
+        [ 4.7442e-01,  1.2114e-01,  5.0000e-01,  1.0000e+00,  1.0000e+00],
+        [ 6.2747e-01,  1.7263e+00,  2.5000e+00,  3.0000e+00,  3.0000e+00],
+        [ 5.6736e-02,  4.8335e-02,  7.0000e+00,  6.0000e+00,  6.0000e+00],
+        [-2.6812e+00, -2.3282e+00,  1.5000e+01,  1.0000e+01,  1.0000e+01],
+        [-7.1080e+00,  7.1207e+00,  2.7500e+01,  1.5000e+01,  1.5000e+01],
+        [-1.1952e+01,  4.2045e+00,  4.5500e+01,  2.1000e+01,  2.1000e+01],
+        [ 1.1058e+00,  1.4667e+01,  7.0000e+01,  2.8000e+01,  2.8000e+01],
+        [-6.6756e+00,  2.2218e+01,  1.0200e+02,  3.6000e+01,  3.6000e+01],
+        [-1.1289e+01,  3.2876e+01,  1.4250e+02,  4.5000e+01,  4.5000e+01]], device=device).double()
+
+    # generate inputs for dubincar system
+    N  = 10
+    time = torch.arange(0, N + 1, device=device)
+    input = torch.stack([time, time], dim=0).double()
+
+    # Initial state
+    state = torch.tensor([0, 0, 0, 0, 0], device=device).double()
+
+    # Create dynamics solver object
+    dubinCarSolver = DubinCar(1)
+
+    # Calculate trajectory
+    state_all = torch.zeros(N + 1, 5, device=device).double()
+    state_all[0, :] = state
+    for i in range(N):
+        state_all[i + 1], _ = dubinCarSolver.forward(state_all[i], input[:, i])
+
+    assert torch.allclose(state_ref, state_all, rtol=1e-2)
+
+    # Jacobian computation - at the last step
+    jacob_state, jacob_input = state_all[-1], input[:, -1]
+    dubinCarSolver.set_refpoint(state=jacob_state, input=jacob_input, t=time[-1])
+
+    A_ref = torch.tensor([[  1.0000,   0.0000,  11.0963,  -0.3832,   5.6413],
+        [  0.0000,   1.0000, -19.3446,  -0.2243, -11.0471],
+        [  0.0000,   0.0000,   1.0000,   0.0000,   1.0000],
+        [  0.0000,   0.0000,   0.0000,   1.0000,   0.0000],
+        [  0.0000,   0.0000,   0.0000,   0.0000,   1.0000]],
+        device=device).double()
+    B_ref = torch.tensor([[-0.2101,  6.9781],
+        [-0.1002, -5.2471],
+        [ 0.0000,  0.5000],
+        [ 1.0000,  0.0000],
+        [ 0.0000,  1.0000]], device=device).double()
+    C_ref = torch.eye(5, device=device).double()
+    D_ref = torch.zeros((5,1), device=device).double()
+    c1_ref = torch.tensor([-1.9049e+03,  3.3062e+03,  0.0000e+00,
+                           1.7764e-15,  1.7764e-15], device=device).double()
+    c2_ref = torch.zeros((5,), device=device).double()
+
+    assert torch.allclose(A_ref, dubinCarSolver.A, atol=1e-4)
+    assert torch.allclose(B_ref, dubinCarSolver.B, atol=1e-4)
+    assert torch.allclose(C_ref, dubinCarSolver.C)
+    assert torch.allclose(D_ref, dubinCarSolver.D)
+    assert torch.allclose(c1_ref, dubinCarSolver.c1, atol=1e-1)
+    assert torch.allclose(c2_ref, dubinCarSolver.c2)
+
 
 def test_dynamics_lti():
 
@@ -222,7 +564,7 @@ def test_dynamics_lti():
     input = torch.randn(N, 1, p)
     """
 
-    # The most general case that all parameters are in the batch. 
+    # The most general case that all parameters are in the batch.
     # The user could change the corresponding values according to the actual physical system and directions above.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -236,7 +578,7 @@ def test_dynamics_lti():
     input_1 = torch.randn(5, 2, device=device)
 
     lti_1 = pp.module.LTI(A_1, B_1, C_1, D_1, c1_1, c2_1).to(device)
-  
+
     # The user can implement this line to print each parameter for comparison.
 
     z_1, y_1 = lti_1(state_1,input_1)

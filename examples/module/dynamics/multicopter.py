@@ -5,12 +5,14 @@ from examples.module.controller_parameters_tuner.commons \
 
 
 class MultiCopter(NLS):
-    def __init__(self, mass, g, J, e3):
+    def __init__(self, dt, mass, g, J, e3):
+        super(MultiCopter, self).__init__()
         self.m = mass
         self.J = J.double()
         self.J_inverse = torch.inverse(self.J)
         self.g = g
         self.e3 = e3
+        self.tau = dt
 
     def state_transition(self, state, input, t=None):
         k1 = self.derivative(state, input)
@@ -18,7 +20,7 @@ class MultiCopter(NLS):
         k3 = self.derivative(self.euler_update(state, k2, t / 2), input)
         k4 = self.derivative(self.euler_update(state, k3, t), input)
 
-        return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * t
+        return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
 
     def observation(self, state, input, t=None):
         return state
