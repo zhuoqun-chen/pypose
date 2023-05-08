@@ -1,8 +1,9 @@
 import torch
+from torch import nn
 from torch.autograd.functional import jacobian
 
 
-class ControllerParametersTuner():
+class ControllerParametersTuner(nn.Module):
     r"""
     This class is the general implementation of the controller parameters tuner based on
     the DiffTune paper.
