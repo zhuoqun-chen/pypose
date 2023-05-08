@@ -75,14 +75,14 @@ def func_to_get_state_error(state, ref_state):
         ref_state[0:2], ref_state[2:4], ref_state[4:6], \
         ref_state[6], ref_state[7], ref_state[8]
 
-    return state - torch.stack(
-       [
+    return state - torch.t(torch.tensor(
+       [[
           ref_position[0],
           ref_position[1],
           ref_pose,
           torch.norm(torch.tensor(ref_velocity[0])),
           ref_angular_vel
-       ], dim=0)
+       ]], device=state.device))
 
 
 if __name__ == "__main__":
@@ -100,9 +100,9 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.05
     learning_rate = 0.5
-    initial_state = torch.stack([0, 0, 0, 0, 0], device=args.device).double()
+    initial_state = torch.t(torch.tensor([[0, 0, 0, 0, 0]], device=args.device).double())
     initial_controller_parameters = \
-      torch.stack([10., 1., 1., 1.], device=args.device).double()
+      torch.t(torch.tensor([[10., 1., 1., 1.]], device=args.device).double())
 
     dubin_car_waypoints = [
       WayPoint(0, 0, 0, 0),

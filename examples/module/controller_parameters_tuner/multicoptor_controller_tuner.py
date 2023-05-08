@@ -133,7 +133,7 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.02
     learning_rate = 0.05
-    initial_state = torch.stack([
+    initial_state = torch.t(torch.tensor([[
         torch.tensor([0.]), # position.x
         torch.tensor([0.]), # position.y
         torch.tensor([0.]), # position.z
@@ -146,14 +146,14 @@ if __name__ == "__main__":
         torch.tensor([0.]), # vel.z
         torch.tensor([0.]), # anguler_vel.x
         torch.tensor([0.]), # anguler_vel.y
-        torch.tensor([0.])] # anguler_vel.z
-      ).double().to(device=args.device)
-    initial_controller_parameters = torch.stack([
+        torch.tensor([0.])]] # anguler_vel.z
+      , device=args.device).double())
+    initial_controller_parameters = torch.t(torch.tensor([[
         torch.tensor([1.]),
         torch.tensor([1.]),
         torch.tensor([1.]),
-        torch.tensor([1.])]
-      ).double().to(device=args.device)
+        torch.tensor([1.])]]
+      , device=args.device).double())
 
     quadrotor_waypoints = [
         WayPoint(0, 0, 0, 0),
