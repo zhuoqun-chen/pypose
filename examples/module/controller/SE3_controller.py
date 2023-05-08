@@ -32,15 +32,21 @@ class SE3Controller(Controller):
         err_vel = vel - desired_velocity
 
         # compute the desired thrust
-        b3_des = - kp * err_position - kv * err_vel - self.m * self.g * self.e3 + self.m * desired_acceleration
+        b3_des = - kp * err_position - kv * err_vel - self.m * self.g * self.e3 \
+          + self.m * desired_acceleration
         f = -torch.mm(b3_des.T, torch.mm(Rwb, self.e3))
 
         # compute the desired torque
         err_pose = (torch.mm(desired_pose.T, Rwb) - torch.mm(Rwb.T, desired_pose))
         err_pose = 0.5 * vee(err_pose)
-        err_angular_vel = angular_vel - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))
-        M = - kori * err_pose - kw * err_angular_vel + torch.cross(angular_vel, torch.mm(self.J, angular_vel))
-        temp_M = torch.mm(hat(angular_vel), torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))) - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_acc))
+        err_angular_vel = angular_vel \
+          - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))
+
+        M = - kori * err_pose - kw * err_angular_vel \
+          + torch.cross(angular_vel, torch.mm(self.J, angular_vel))
+        temp_M = torch.mm(hat(angular_vel),
+                           torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))) \
+                            - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_acc))
         M = M - torch.mm(self.J, temp_M)
 
         return torch.stack(
