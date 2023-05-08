@@ -5,7 +5,7 @@ from examples.module.dynamics.dubincar import DubinCar
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
 from examples.module.controller_parameters_tuner.waypoint import WayPoint
 from examples.module.controller_parameters_tuner.trajectory_gen \
-  import PolynomialTrajectoryGenerator
+  import MinimumSnapTrajectoryGenerator
 
 
 def get_shortest_path_between_angles(original_ori, des_ori):
@@ -19,7 +19,7 @@ def get_shortest_path_between_angles(original_ori, des_ori):
 
 
 def get_ref_states(waypoints, dt):
-    traj_gen = PolynomialTrajectoryGenerator()
+    traj_gen = MinimumSnapTrajectoryGenerator()
     generated_waypoints = traj_gen.generate_trajectory(waypoints, time_interval, 7)
 
     car_desired_states = []

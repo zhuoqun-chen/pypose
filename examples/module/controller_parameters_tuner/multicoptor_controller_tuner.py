@@ -5,14 +5,14 @@ from examples.module.dynamics.multicopter import MultiCopter
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
 from examples.module.controller_parameters_tuner.waypoint import WayPoint
 from examples.module.controller_parameters_tuner.trajectory_gen \
-  import PolynomialTrajectoryGenerator
+  import MinimumSnapTrajectoryGenerator
 from examples.module.controller_parameters_tuner.commons \
   import quaternion_2_rotation_matrix, rotation_matrix_2_quaternion
 
 
 def get_ref_states(initial_state, waypoints, dt):
     device = initial_state.device
-    traj_generator = PolynomialTrajectoryGenerator()
+    traj_generator = MinimumSnapTrajectoryGenerator()
     quad_trajectory = traj_generator.generate_trajectory(waypoints, dt, 7)
 
     # get ref states

@@ -4,7 +4,7 @@ import torch
 from waypoint import WayPoint
 from commons import get_shortest_path_between_angles
 
-class PolynomialTrajectoryGenerator:
+class MinimumSnapTrajectoryGenerator:
   def __init__(self):
     return
 
