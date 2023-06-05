@@ -33,12 +33,8 @@ if __name__=="__main__":
     os.makedirs(os.path.join(args.save), exist_ok=True)
     print(args)
     points = torch.tensor([[[0., 0., 0.],
-                            [1., .5, 0.1],
-                            [0., 1., 0.2]]])
-    xrange = [0., 5.]
-    yrange = [0., 1.5]
-    zrange = [0., 1.]
-    waypoints = pp.CSplineR3(points)
-    print(waypoints)
+                            [1., 2., 2.]]])
+    waypoints = pp.CSplineR3(points, 0.2)
+    print(waypoints[0])
     # plot_result(waypoints, xrange, yrange, zrange,
     #             oripoints=points, show=args.show, save=args.save)

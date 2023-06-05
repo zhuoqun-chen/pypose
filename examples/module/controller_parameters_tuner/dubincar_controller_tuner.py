@@ -1,5 +1,6 @@
 import argparse, os
 import torch
+import pypose as pp
 from examples.module.controller.dubincar_controller import DubinCarController
 from examples.module.dynamics.dubincar import DubinCar
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
@@ -19,17 +20,19 @@ def get_shortest_path_between_angles(original_ori, des_ori):
 
 
 def get_ref_states(waypoints, dt):
-    traj_gen = MinimumSnapTrajectoryGenerator()
-    generated_waypoints = traj_gen.generate_trajectory(waypoints, time_interval, 7)
-
     car_desired_states = []
     last_desired_state = (0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-    for wp in generated_waypoints[1:]:
+    for index, waypoint in enumerate(waypoints[1:]):
+        # get path attributes from the last desired state
+        last_waypoint = waypoints[index]
+        vel = (waypoint - last_waypoint) / dt
+        last_vel = torch.tensor([last_desired_state[2], last_desired_state[3]])
+        acc = (vel[0:2] - last_vel) / dt
         last_desired_orientation, \
         last_desired_orientation_dot, \
         last_desired_orientation_ddot = last_desired_state[-3:]
-        current_orientation = torch.atan2(torch.tensor(wp.vel.y), torch.tensor(wp.vel.x)).item()
+        current_orientation = torch.atan2(vel[1], vel[0]).item()
         last_desired_orientation_remaindar = torch.atan2(torch.sin(torch.tensor(last_desired_orientation)), torch.cos(torch.tensor(last_desired_orientation))).item()
         delta_angle = get_shortest_path_between_angles(last_desired_orientation_remaindar, current_orientation)
         current_orientation = last_desired_orientation + delta_angle
@@ -37,12 +40,12 @@ def get_ref_states(waypoints, dt):
 
         car_desired_states.append(
           (
-            wp.position.x, \
-            wp.position.y, \
-            wp.vel.x, \
-            wp.vel.y, \
-            wp.acc.x, \
-            wp.acc.y, \
+            waypoint[0], \
+            waypoint[1], \
+            vel[0], \
+            vel[1], \
+            acc[0], \
+            acc[1], \
             current_orientation, \
             current_ori_dot, \
             (current_ori_dot - last_desired_orientation_dot) / dt))
@@ -98,21 +101,21 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(args.save), exist_ok=True)
 
     # program parameters
-    time_interval = 0.05
+    time_interval = 0.1
     learning_rate = 0.5
     initial_state = torch.t(torch.tensor([[0, 0, 0, 0, 0]], device=args.device).double())
     initial_controller_parameters = \
-      torch.t(torch.tensor([[10., 1., 1., 1.]], device=args.device).double())
+      torch.t(torch.tensor([[2., 1., 1., 1.]], device=args.device).double())
 
-    dubin_car_waypoints = [
-      WayPoint(0, 0, 0, 0),
-      WayPoint(1, 1, 0, 2),
-      WayPoint(2, 0, 0, 4),
-      WayPoint(3, -1, 0, 6),
-      WayPoint(4, 0, 0, 8),
-    ]
+    points = torch.tensor([[[0., 0., 0.],
+                            [1., 0, 0],
+                            [1., 1, 0],
+                            [1., 2, 0],
+                            [2., 3, 0],
+                            [4., 3, 0]]])
 
-    ref_states = get_ref_states(dubin_car_waypoints, time_interval)
+    waypoints = pp.CSplineR3(points, time_interval)[0]
+    ref_states = get_ref_states(waypoints, time_interval)
 
     dubincar = DubinCar(time_interval)
 

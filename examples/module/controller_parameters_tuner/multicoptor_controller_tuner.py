@@ -1,5 +1,6 @@
 import argparse, os
 import torch
+import pypose as pp
 from examples.module.controller.SE3_controller import SE3Controller
 from examples.module.dynamics.multicopter import MultiCopter
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
@@ -12,8 +13,6 @@ from examples.module.controller_parameters_tuner.commons \
 
 def get_ref_states(initial_state, waypoints, dt):
     device = initial_state.device
-    traj_generator = MinimumSnapTrajectoryGenerator()
-    quad_trajectory = traj_generator.generate_trajectory(waypoints, dt, 7)
 
     # get ref states
     ref_states = []
@@ -26,24 +25,33 @@ def get_ref_states(initial_state, waypoints, dt):
       torch.zeros([3, 1], device=device).double(),
       last_ref_pose, last_ref_angle_dot, last_ref_angle_ddot)
     )
-    for wp in quad_trajectory[1:]:
-        position_tensor = torch.stack(
-            [torch.tensor([wp.position.x], device=device),
-             torch.tensor([wp.position.y], device=device),
-             torch.tensor([wp.position.z], device=device)]).double()
-        velocity_tensor = torch.stack(
-            [torch.tensor([wp.vel.x], device=device),
-             torch.tensor([wp.vel.y], device=device),
-             torch.tensor([wp.vel.z], device=device)]).double()
+
+    gravity_acc_tensor = torch.vstack([
+        torch.tensor(0., device=device),
+        torch.tensor(0., device=device),
+        torch.tensor(g, device=device)]
+    ).double()
+    for index, waypoint in enumerate(waypoints[1:]):
+        position_tensor = torch.vstack(
+            [waypoint[0],
+             waypoint[1],
+             waypoint[2]]).double()
+
+        last_position_tensor = torch.vstack(
+            [waypoints[index][0],
+             waypoints[index][1],
+             waypoints[index][2]]).double()
+
+        # velocity computation
+        # last_position_tensor = ref_states[index][0]
+        velocity_tensor = (position_tensor - last_position_tensor) / dt
+
+        # acceleration computation
+        last_velocity_tensor = ref_states[index][1]
+        raw_acc_tensor = (velocity_tensor - last_velocity_tensor) / dt
+
         # minus gravity acc if choose upwards as the positive z-axis
-        raw_acc_tensor = torch.stack(
-            [torch.tensor([wp.acc.x], device=device),
-             torch.tensor([wp.acc.y], device=device),
-             torch.tensor([wp.acc.z], device=device)]).double()
-        acc_tensor = torch.stack([
-            torch.tensor([wp.acc.x], device=device),
-            torch.tensor([wp.acc.y], device=device),
-            torch.tensor([wp.acc.z - g], device=device)]).double()
+        acc_tensor = raw_acc_tensor - gravity_acc_tensor
 
         # assume the yaw angle stays at 0
         b1_yaw_tensor = torch.stack([
@@ -56,20 +64,13 @@ def get_ref_states(initial_state, waypoints, dt):
         b2_ref = b2_ref / torch.norm(b2_ref)
         b1_ref = torch.cross(b2_ref, b3_ref)
         pose = (torch.concat([b1_ref, b2_ref, b3_ref], dim=1)).double()
-        R_err = torch.mm(pose, torch.t(last_ref_pose))
-        q_err = rotation_matrix_2_quaternion(R_err)
-        q_err = q_err / torch.norm(q_err)
-        axis = torch.stack([
-            torch.tensor([q_err[1]], device=device),
-            torch.tensor([q_err[2]], device=device),
-            torch.tensor([q_err[3]], device=device)]).double()
-        if torch.norm(axis) != 0:
-          axis = axis / torch.norm(axis)
         # angle = 2 * torch.acos(q_err[0])
         # angle_dot = angle / dt * axis
         # angle_ddot = ((angle_dot - last_ref_angle_dot) / dt).double()
+
+        # assign zero pose to all waypoints
         angle = 0.0
-        angle_dot = 0.0 * axis
+        angle_dot = torch.zeros([3, 1], device=device).double()
         angle_ddot = ((angle_dot - last_ref_angle_dot) / dt).double()
 
         ref_states.append((position_tensor, velocity_tensor,
@@ -134,8 +135,8 @@ if __name__ == "__main__":
     g = 9.81
 
     # program parameters
-    time_interval = 0.02
-    learning_rate = 0.1
+    time_interval = 0.05
+    learning_rate = 0.01
     initial_state = torch.t(torch.tensor([[
         torch.tensor([0.]), # position.x
         torch.tensor([0.]), # position.y
@@ -158,13 +159,13 @@ if __name__ == "__main__":
         torch.tensor([1.])]]
       , device=args.device).double())
 
-    quadrotor_waypoints = [
-        WayPoint(0, 0, 0, 0),
-        WayPoint(1, 2, -1, 2),
-        WayPoint(3, 6, -5, 4)
-    ]
+    points = torch.tensor([[[0., 0., 0.],
+                            [1., 1., -2],
+                            [3., 3., 0]]], device=args.device)
 
-    ref_states = get_ref_states(initial_state, quadrotor_waypoints, time_interval)
+    waypoints = pp.CSplineR3(points, time_interval)[0]
+
+    ref_states = get_ref_states(initial_state, waypoints, time_interval)
 
     e3 = torch.stack([
         torch.tensor([0.]),
