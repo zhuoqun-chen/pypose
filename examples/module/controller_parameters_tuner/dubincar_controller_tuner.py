@@ -4,9 +4,6 @@ import pypose as pp
 from examples.module.controller.dubincar_controller import DubinCarController
 from examples.module.dynamics.dubincar import DubinCar
 from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
-from examples.module.controller_parameters_tuner.waypoint import WayPoint
-from examples.module.controller_parameters_tuner.trajectory_gen \
-  import MinimumSnapTrajectoryGenerator
 
 
 def get_shortest_path_between_angles(original_ori, des_ori):
@@ -19,9 +16,9 @@ def get_shortest_path_between_angles(original_ori, des_ori):
   return e_ori
 
 
-def get_ref_states(waypoints, dt):
+def get_ref_states(waypoints, dt, device):
     car_desired_states = []
-    last_desired_state = (0, 0, 0, 0, 0, 0, 0, 0, 0)
+    last_desired_state = torch.zeros(9, device=device)
 
     for index, waypoint in enumerate(waypoints[1:]):
         # get path attributes from the last desired state
@@ -32,14 +29,15 @@ def get_ref_states(waypoints, dt):
         last_desired_orientation, \
         last_desired_orientation_dot, \
         last_desired_orientation_ddot = last_desired_state[-3:]
-        current_orientation = torch.atan2(vel[1], vel[0]).item()
-        last_desired_orientation_remaindar = torch.atan2(torch.sin(torch.tensor(last_desired_orientation)), torch.cos(torch.tensor(last_desired_orientation))).item()
+        current_orientation = torch.atan2(vel[1], vel[0])
+        last_desired_orientation_remaindar = \
+          torch.atan2(torch.sin(last_desired_orientation), torch.cos(last_desired_orientation))
         delta_angle = get_shortest_path_between_angles(last_desired_orientation_remaindar, current_orientation)
         current_orientation = last_desired_orientation + delta_angle
         current_ori_dot = (current_orientation - last_desired_orientation) / dt
 
-        car_desired_states.append(
-          (
+        car_desired_states.append(torch.tensor(
+          [
             waypoint[0], \
             waypoint[1], \
             vel[0], \
@@ -48,7 +46,7 @@ def get_ref_states(waypoints, dt):
             acc[1], \
             current_orientation, \
             current_ori_dot, \
-            (current_ori_dot - last_desired_orientation_dot) / dt))
+            (current_ori_dot - last_desired_orientation_dot) / dt], device=device))
         last_desired_state = car_desired_states[-1:][0]
     return car_desired_states
 
@@ -68,7 +66,7 @@ def compute_loss(dynamic_system, controller, controller_parameters, initial_stat
       system_state = system_new_state
 
       loss += torch.norm(
-        torch.tensor(ref_position) - torch.tensor([position_x, position_y])
+        ref_position - torch.stack([position_x, position_y])
       )
     return loss / len(ref_states)
 
@@ -78,14 +76,14 @@ def func_to_get_state_error(state, ref_state):
         ref_state[0:2], ref_state[2:4], ref_state[4:6], \
         ref_state[6], ref_state[7], ref_state[8]
 
-    return state - torch.t(torch.tensor(
-       [[
+    return state - torch.stack(
+       [
           ref_position[0],
           ref_position[1],
           ref_pose,
-          torch.norm(torch.tensor(ref_velocity[0])),
+          torch.norm(ref_velocity[0]),
           ref_angular_vel
-       ]], device=state.device))
+       ])
 
 
 if __name__ == "__main__":
@@ -103,9 +101,8 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.1
     learning_rate = 0.5
-    initial_state = torch.t(torch.tensor([[0, 0, 0, 0, 0]], device=args.device).double())
-    initial_controller_parameters = \
-      torch.t(torch.tensor([[2., 1., 1., 1.]], device=args.device).double())
+    initial_state = torch.tensor([0, 0, 0, 0, 0], device=args.device).double()
+    initial_controller_parameters = torch.tensor([2., 1., 1., 1.], device=args.device).double()
 
     points = torch.tensor([[[0., 0., 0.],
                             [1., 0, 0],
@@ -115,7 +112,7 @@ if __name__ == "__main__":
                             [4., 3, 0]]])
 
     waypoints = pp.CSplineR3(points, time_interval)[0]
-    ref_states = get_ref_states(waypoints, time_interval)
+    ref_states = get_ref_states(waypoints, time_interval, args.device)
 
     dubincar = DubinCar(time_interval)
 
@@ -126,6 +123,10 @@ if __name__ == "__main__":
 
     controller = DubinCarController()
     controller_parameters = torch.clone(initial_controller_parameters)
+
+
+    print("Original Loss: ", compute_loss(dubincar, controller, controller_parameters,
+                                     initial_state, ref_states, time_interval))
 
     # only tune positions
     states_to_tune = torch.zeros([len(initial_state), len(initial_state)]

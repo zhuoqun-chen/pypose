@@ -26,10 +26,16 @@ class SE3Controller(Controller):
         # extract parameters
         kp, kv, kori, kw = parameters
 
+        pose = torch.t(torch.atleast_2d(pose))
+        angular_vel = torch.t(torch.atleast_2d(angular_vel))
+        desired_angular_vel = torch.t(torch.atleast_2d(desired_angular_vel))
+        desired_angular_acc = torch.t(torch.atleast_2d(desired_angular_acc))
+
         Rwb = quaternion_2_rotation_matrix(pose)
 
-        err_position = position - desired_position
-        err_vel = vel - desired_velocity
+        err_position = torch.t(torch.atleast_2d(position - desired_position))
+        err_vel = torch.t(torch.atleast_2d(vel - desired_velocity))
+        desired_acceleration = torch.t(torch.atleast_2d(desired_acceleration))
 
         # compute the desired thrust
         b3_des = - kp * err_position - kv * err_vel - self.m * self.g * self.e3 \
@@ -49,6 +55,6 @@ class SE3Controller(Controller):
                             - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_acc))
         M = M - torch.mm(self.J, temp_M)
 
-        return torch.stack(
+        return torch.concat(
           [torch.max(torch.tensor([0.], device=device), f[0]), M[0], M[1], M[2]]
         )

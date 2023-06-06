@@ -1,11 +1,13 @@
 import torch
 
+# accept column vector
 def hat(vector):
     device = vector.device
+    zero_t = torch.tensor([0.], device=device)
     return torch.squeeze(torch.stack([
-        torch.stack([torch.tensor([0.], device=device), -vector[2], vector[1]], dim=-1),
-        torch.stack([vector[2], torch.tensor([0.], device=device), -vector[0]], dim=-1),
-        torch.stack([-vector[1], vector[0], torch.tensor([0.], device=device)], dim=-1)
+        torch.stack([zero_t, -vector[2], vector[1]], dim=-1),
+        torch.stack([vector[2], zero_t, -vector[0]], dim=-1),
+        torch.stack([-vector[1], vector[0], zero_t], dim=-1)
     ]))
 
 def vee(skew_symmetric_matrix):
@@ -14,6 +16,7 @@ def vee(skew_symmetric_matrix):
         torch.unsqueeze(skew_symmetric_matrix[0, 2], dim=0),
         -torch.unsqueeze(skew_symmetric_matrix[0, 1], dim=0)])
 
+# accept column vector
 def quaternion_2_rotation_matrix(q):
     device = q.device
     q = q / torch.norm(q)

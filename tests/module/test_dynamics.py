@@ -207,9 +207,6 @@ def test_dynamics_floquet():
 def test_dynamics_multicopter():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    """
-    For the system needs an input,
-    """
     def angular_vel_2_quaternion_dot(quaternion, w):
         device = quaternion.device
         p, q, r = w
@@ -222,6 +219,7 @@ def test_dynamics_multicopter():
                 torch.stack([-r, -q, p, zero_t], dim=-1)
             ])), quaternion)
 
+    # accept column vector
     def hat(vector):
         device = vector.device
         return torch.squeeze(torch.stack([
@@ -230,6 +228,7 @@ def test_dynamics_multicopter():
             torch.stack([-vector[1], vector[0], torch.tensor([0.], device=device)], dim=-1)
         ]))
 
+    # accept column vector
     def quaternion_2_rotation_matrix(q):
         device = q.device
         q = q / torch.norm(q)
@@ -270,8 +269,7 @@ def test_dynamics_multicopter():
             vel_updated = vel + acceleration * dt
             angular_speed_updated = angular_speed + w_dot * dt
 
-            return torch.concat(
-                [
+            return torch.concat([
                     position_updated,
                     pose_updated,
                     vel_updated,
@@ -284,17 +282,24 @@ def test_dynamics_multicopter():
                 state[7:10], state[10:13]
             thrust, M = input[0], input[1:4]
 
+            # convert the 1d row vector to 2d column vector
+            M = torch.t(torch.atleast_2d(M))
+            pose = torch.t(torch.atleast_2d(pose))
+
             pose_in_R = quaternion_2_rotation_matrix(pose)
 
             acceleration = (torch.mm(pose_in_R, -thrust * self.e3)
                             + self.m * self.g * self.e3) / self.m
+
+            angular_speed = torch.t(torch.atleast_2d(angular_speed))
             w_dot = torch.mm(self.J_inverse,
                             M - torch.cross(angular_speed, torch.mm(self.J, angular_speed)))
-            return torch.vstack([
+
+            return torch.concat([
                     vel,
-                    angular_vel_2_quaternion_dot(pose, angular_speed),
-                    acceleration,
-                    w_dot
+                    torch.squeeze(torch.t(angular_vel_2_quaternion_dot(pose, angular_speed))),
+                    torch.squeeze(torch.t(acceleration)),
+                    torch.squeeze(torch.t(w_dot))
                 ]
             )
 
@@ -304,16 +309,16 @@ def test_dynamics_multicopter():
     time = torch.arange(0, N + 1, device=device) * dt
     # it's hard to generate inputs by hands, instead we use SE3 controller to
     # get the inputs
-    inputs = torch.t(torch.tensor([
+    inputs = torch.tensor([
         [ 0.000, 0.000, 0.000, 0.1962],
         [ 1.9612e-01, -5.6856e-03,  2.8868e-03, -4.7894e-08],
         [ 1.9590e-01, -6.3764e-03,  3.2420e-03, -3.8333e-07],
         [ 1.9560e-01,  6.7747e-04, -3.3588e-04, -4.2895e-07],
         [ 1.9523e-01,  7.0193e-03, -3.5589e-03,  3.3822e-07]
-    ]).double())
+    ], device=device).double()
 
     # Initial state
-    state = torch.t(torch.tensor([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]], device=device)).double()
+    state = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0], device=device).double()
 
     # Create dynamics solver object
     e3 = torch.stack([
@@ -334,13 +339,13 @@ def test_dynamics_multicopter():
                                 e3)
 
     # Calculate trajectory
-    state_all = torch.zeros(13, N + 1, device=device).double()
-    state_all[:, 0] = state.squeeze()
+    state_all = torch.zeros(N + 1, 13, device=device).double()
+    state_all[0, :] = state
     for i in range(N):
-        new_state, _ = multicopterSolver.forward(torch.t(state_all[:, i].unsqueeze(dim=0)), torch.t(inputs[:, i].unsqueeze(dim=0)))
-        state_all[:, i+1] = new_state.squeeze()
+        new_state, _ = multicopterSolver.forward(state_all[i, :], inputs[i, :])
+        state_all[i+1, :] = new_state
 
-    state_ref = torch.tensor([[ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
+    state_ref = torch.t(torch.tensor([[ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
          -6.8088e-12],
         [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,
          -1.3676e-11],
@@ -365,12 +370,12 @@ def test_dynamics_multicopter():
         [ 0.0000e+00,  0.0000e+00,  3.4163e-04,  7.2524e-04,  6.8535e-04,
           2.6406e-04],
         [ 0.0000e+00,  1.4248e-02,  1.4248e-02,  1.4248e-02,  1.4248e-02,
-          1.4248e-02]], device=device).double()
+          1.4248e-02]], device=device).double())
 
     assert torch.allclose(state_ref, state_all, rtol=1e-2)
 
      # Jacobian computation - at the last step
-    jacob_state, jacob_input = torch.t(state_all[:, -1].unsqueeze(dim=0)), torch.t(inputs[:, -1].unsqueeze(dim=0))
+    jacob_state, jacob_input = state_all[-1, :], inputs[-1, :]
     multicopterSolver.set_refpoint(state=jacob_state, input=jacob_input, t=time[-1])
 
     A_ref = torch.tensor([[ 1.0000e+00,  0.0000e+00,  0.0000e+00,  1.1249e-10, -4.7260e-09,
@@ -428,17 +433,17 @@ def test_dynamics_multicopter():
         [ 0.0000e+00,  3.9915e-08, -7.8931e-08,  7.2622e-02]], device=device).double()
     C_ref = torch.eye(13, device=device).double()
     D_ref = torch.zeros((13,1), device=device).double()
-    c1_ref = torch.tensor([-1.9049e+03,  3.3062e+03,  0.0000e+00,
-                           1.7764e-15,  1.7764e-15], device=device).double()
+    c1_ref = torch.tensor([ 1.6402e-11,  3.2768e-11,  7.9167e-05,  7.6009e-09,  4.3808e-07,
+        -2.2178e-07, -1.1874e-05,  4.3814e-10,  8.7343e-10,  1.9000e-03,
+        -7.2095e-08, -1.4695e-07, -2.3197e-10], device=device).double()
     c2_ref = torch.zeros((13,), device=device).double()
 
-    assert torch.allclose(A_ref, multicopterSolver.A, atol=1e-1)
+    assert torch.allclose(A_ref, multicopterSolver.A, atol=1e-4)
     assert torch.allclose(B_ref, multicopterSolver.B, atol=1e-4)
     assert torch.allclose(C_ref, multicopterSolver.C)
     assert torch.allclose(D_ref, multicopterSolver.D)
-    assert torch.allclose(c1_ref, multicopterSolver.c1, atol=1e-1)
+    assert torch.allclose(c1_ref, multicopterSolver.c1, atol=1e-4)
     assert torch.allclose(c2_ref, multicopterSolver.c2)
-
 
 
 def test_dynamics_dubincar():
@@ -487,22 +492,22 @@ def test_dynamics_dubincar():
                     w + w_dot * dt
                 ]
             )
-    state_ref = torch.tensor([[ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00],
-        [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00,  0.0000e+00],
-        [ 4.7442e-01,  1.2114e-01,  5.0000e-01,  1.0000e+00,  1.0000e+00],
-        [ 6.2747e-01,  1.7263e+00,  2.5000e+00,  3.0000e+00,  3.0000e+00],
-        [ 5.6736e-02,  4.8335e-02,  7.0000e+00,  6.0000e+00,  6.0000e+00],
-        [-2.6812e+00, -2.3282e+00,  1.5000e+01,  1.0000e+01,  1.0000e+01],
-        [-7.1080e+00,  7.1207e+00,  2.7500e+01,  1.5000e+01,  1.5000e+01],
-        [-1.1952e+01,  4.2045e+00,  4.5500e+01,  2.1000e+01,  2.1000e+01],
-        [ 1.1058e+00,  1.4667e+01,  7.0000e+01,  2.8000e+01,  2.8000e+01],
-        [-6.6756e+00,  2.2218e+01,  1.0200e+02,  3.6000e+01,  3.6000e+01],
-        [-1.1289e+01,  3.2876e+01,  1.4250e+02,  4.5000e+01,  4.5000e+01]], device=device).double()
+    state_ref = torch.tensor([[0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00],
+        [5.0000e-01, 1.2500e-03, 5.0000e-03, 1.0000e+00, 1.0000e-02],
+        [1.9999e+00, 1.9999e-02, 2.0000e-02, 2.0000e+00, 2.0000e-02],
+        [4.4985e+00, 1.0123e-01, 4.5000e-02, 3.0000e+00, 3.0000e-02],
+        [7.9915e+00, 3.1983e-01, 8.0000e-02, 4.0000e+00, 4.0000e-02],
+        [1.2467e+01, 7.8023e-01, 1.2500e-01, 5.0000e+00, 5.0000e-02],
+        [1.7903e+01, 1.6156e+00, 1.8000e-01, 6.0000e+00, 6.0000e-02],
+        [2.4256e+01, 2.9863e+00, 2.4500e-01, 7.0000e+00, 7.0000e-02],
+        [3.1457e+01, 5.0764e+00, 3.2000e-01, 8.0000e+00, 8.0000e-02],
+        [3.9402e+01, 8.0897e+00, 4.0500e-01, 9.0000e+00, 9.0000e-02],
+        [4.7943e+01, 1.2242e+01, 5.0000e-01, 1.0000e+01, 1.0000e-01]], device=device).double()
 
     # generate inputs for dubincar system
     N  = 10
-    time = torch.arange(0, N + 1, device=device)
-    input = torch.stack([time, time], dim=0).double()
+    time = torch.squeeze(torch.ones((1, N), device=device))
+    input = torch.stack([time, 0.01 * torch.ones_like(time)], dim=0).double()
 
     # Initial state
     state = torch.tensor([0, 0, 0, 0, 0], device=device).double()
@@ -522,22 +527,22 @@ def test_dynamics_dubincar():
     jacob_state, jacob_input = state_all[-1], input[:, -1]
     dubinCarSolver.set_refpoint(state=jacob_state, input=jacob_input, t=time[-1])
 
-    A_ref = torch.tensor([[  1.0000,   0.0000,  11.0963,  -0.3832,   5.6413],
-        [  0.0000,   1.0000, -19.3446,  -0.2243, -11.0471],
-        [  0.0000,   0.0000,   1.0000,   0.0000,   1.0000],
-        [  0.0000,   0.0000,   0.0000,   1.0000,   0.0000],
-        [  0.0000,   0.0000,   0.0000,   0.0000,   1.0000]],
+    A_ref = torch.tensor([[ 1.0000,  0.0000, -5.5080,  0.8513, -2.8759],
+        [ 0.0000,  1.0000,  8.9336,  0.5239,  4.4895],
+        [ 0.0000,  0.0000,  1.0000,  0.0000,  1.0000],
+        [ 0.0000,  0.0000,  0.0000,  1.0000,  0.0000],
+        [ 0.0000,  0.0000,  0.0000,  0.0000,  1.0000]],
         device=device).double()
-    B_ref = torch.tensor([[-0.2101,  6.9781],
-        [-0.1002, -5.2471],
+    B_ref = torch.tensor([[ 0.4210, -0.9806],
+        [ 0.2694,  1.4988],
         [ 0.0000,  0.5000],
         [ 1.0000,  0.0000],
         [ 0.0000,  1.0000]], device=device).double()
     C_ref = torch.eye(5, device=device).double()
-    D_ref = torch.zeros((5,1), device=device).double()
-    c1_ref = torch.tensor([-1.9049e+03,  3.3062e+03,  0.0000e+00,
-                           1.7764e-15,  1.7764e-15], device=device).double()
-    c2_ref = torch.zeros((5,), device=device).double()
+    D_ref = torch.zeros((5, 2), device=device).double()
+    c1_ref = torch.tensor([ 3.0514e+00, -4.9308e+00,  0.0000e+00,
+                           1.1102e-16,  1.7347e-18], device=device).double()
+    c2_ref = torch.zeros((5), device=device).double()
 
     assert torch.allclose(A_ref, dubinCarSolver.A, atol=1e-4)
     assert torch.allclose(B_ref, dubinCarSolver.B, atol=1e-4)
@@ -639,3 +644,5 @@ if __name__ == '__main__':
     test_dynamics_cartpole()
     test_dynamics_floquet()
     test_dynamics_lti()
+    test_dynamics_dubincar()
+    test_dynamics_multicopter()

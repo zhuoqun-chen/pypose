@@ -13,6 +13,10 @@ class ControllerParametersTuner(nn.Module):
     parameters by constructing the loss function $\mathbf{L}$ and computing the gradient of
     $\mathbf{L}$ with respect to controller parameters.
 
+    Note:
+        For the parameter initial_state and parameters, please use row/column vector to
+        represent these variables at the same time.
+
     .. math::
         \begin{align*}
             \mathbf{L} &= \sum_i^N ||x_i - \hat x_i||^2 \\
@@ -75,6 +79,7 @@ class ControllerParametersTuner(nn.Module):
             system_state = system_new_state
 
             last_gradient = dxdparam_gradients[-1]
+
             dxdparam_gradients.append(
               torch.mm(dfdxk_tensor + torch.mm(dfduk_tensor, dhdxk_tensor), last_gradient) + torch.mm(dfduk_tensor, dhdparam_tensor)
             )
@@ -83,8 +88,11 @@ class ControllerParametersTuner(nn.Module):
         gradient_sum = torch.zeros([len(parameters), 1], device=self.device).double()
         for ref_state_index in range(0, len(ref_states)):
             state_error = func_get_state_error(states[ref_state_index + 1], ref_states[ref_state_index])
-            state_error = torch.mm(torch.t(state_error), states_to_tune)
+            state_error = torch.atleast_2d(state_error)
+            state_error = torch.mm(state_error, states_to_tune)
             gradient_sum += torch.t(2 * torch.mm(state_error, dxdparam_gradients[ref_state_index]))
+
+        gradient_sum = torch.squeeze(torch.t(gradient_sum))
 
         min_parameters = parameters_tuning_set[0]
         max_parameters = parameters_tuning_set[1]
