@@ -2,6 +2,8 @@ import math
 import pypose as pp
 import torch as torch
 
+from pypose.lietensor.basics import vec2skew
+
 
 def test_dynamics_cartpole():
     """
@@ -220,19 +222,10 @@ def test_dynamics_multicopter():
             ])), quaternion)
 
     # accept column vector
-    def hat(vector):
-        device = vector.device
-        return torch.squeeze(torch.stack([
-            torch.stack([torch.tensor([0.], device=device), -vector[2], vector[1]], dim=-1),
-            torch.stack([vector[2], torch.tensor([0.], device=device), -vector[0]], dim=-1),
-            torch.stack([-vector[1], vector[0], torch.tensor([0.], device=device)], dim=-1)
-        ]))
-
-    # accept column vector
     def quaternion_2_rotation_matrix(q):
         device = q.device
         q = q / torch.norm(q)
-        qahat = hat(q[1:4])
+        qahat = torch.squeeze(vec2skew(torch.t(q[1:4])))
         return (torch.eye(3, device=device)
             + 2 * torch.mm(qahat, qahat) + 2 * q[0] * qahat).double()
 
@@ -247,10 +240,10 @@ def test_dynamics_multicopter():
             self.tau = dt
 
         def state_transition(self, state, input, t=None):
-            k1 = self.derivative(state, input)
-            k2 = self.derivative(self.euler_update(state, k1, t / 2), input)
-            k3 = self.derivative(self.euler_update(state, k2, t / 2), input)
-            k4 = self.derivative(self.euler_update(state, k3, t), input)
+            k1 = self.xdot(state, input)
+            k2 = self.xdot(self.euler_update(state, k1, t / 2), input)
+            k3 = self.xdot(self.euler_update(state, k2, t / 2), input)
+            k4 = self.xdot(self.euler_update(state, k3, t), input)
 
             return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
 
@@ -277,7 +270,7 @@ def test_dynamics_multicopter():
                 ]
             )
 
-        def derivative(self, state, input):
+        def xdot(self, state, input):
             position, pose, vel, angular_speed = state[0:3], state[3:7], \
                 state[7:10], state[10:13]
             thrust, M = input[0], input[1:4]
@@ -455,17 +448,17 @@ def test_dynamics_dubincar():
 
         # Use RK4 to infer the k+1 state
         def state_transition(self, state, input, t=None):
-            k1 = self.derivative(state, input)
-            k2 = self.derivative(self.euler_update(state, k1, self.tau / 2), input)
-            k3 = self.derivative(self.euler_update(state, k2, self.tau / 2), input)
-            k4 = self.derivative(self.euler_update(state, k3, self.tau), input)
+            k1 = self.xdot(state, input)
+            k2 = self.xdot(self.euler_update(state, k1, self.tau / 2), input)
+            k3 = self.xdot(self.euler_update(state, k2, self.tau / 2), input)
+            k4 = self.xdot(self.euler_update(state, k3, self.tau), input)
 
             return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
 
         def observation(self, state, input, t=None):
             return state
 
-        def derivative(self, state, input):
+        def xdot(self, state, input):
             pos_x, pos_y, orientation, vel, w = state
             # acceleration and angular acceleration
             acc, w_dot = input
@@ -492,6 +485,7 @@ def test_dynamics_dubincar():
                     w + w_dot * dt
                 ]
             )
+
     state_ref = torch.tensor([[0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00],
         [5.0000e-01, 1.2500e-03, 5.0000e-03, 1.0000e+00, 1.0000e-02],
         [1.9999e+00, 1.9999e-02, 2.0000e-02, 2.0000e+00, 2.0000e-02],

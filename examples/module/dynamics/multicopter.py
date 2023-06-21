@@ -1,8 +1,19 @@
 import torch
 from pypose.module.dynamics import NLS
 from examples.module.controller_parameters_tuner.commons \
-    import hat, vee, angular_vel_2_quaternion_dot, quaternion_2_rotation_matrix
+    import quaternion_2_rotation_matrix
 
+def angular_vel_2_quaternion_dot(quaternion, w):
+    device = quaternion.device
+    p, q, r = w
+    zero_t = torch.tensor([0.], device=device)
+    return -0.5 * torch.mm(torch.squeeze(torch.stack(
+        [
+            torch.stack([zero_t, p, q, r], dim=-1),
+            torch.stack([-p, zero_t, -r, q], dim=-1),
+            torch.stack([-q, r, zero_t, -p], dim=-1),
+            torch.stack([-r, -q, p, zero_t], dim=-1)
+        ])), quaternion)
 
 class MultiCopter(NLS):
     def __init__(self, dt, mass, g, J, e3):

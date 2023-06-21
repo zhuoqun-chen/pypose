@@ -1,7 +1,8 @@
 import torch
+from pypose.lietensor.basics import vec2skew, skew2vec
 from pypose.module.controller import Controller
 from examples.module.controller_parameters_tuner.commons \
-  import hat, vee, quaternion_2_rotation_matrix
+  import quaternion_2_rotation_matrix
 
 
 class GeometricController(Controller):
@@ -44,13 +45,13 @@ class GeometricController(Controller):
 
         # compute the desired torque
         err_pose = (torch.mm(desired_pose.T, Rwb) - torch.mm(Rwb.T, desired_pose))
-        err_pose = 0.5 * vee(err_pose)
+        err_pose = 0.5 * torch.t(torch.squeeze(skew2vec(torch.unsqueeze(err_pose, dim=0)), dim=0))
         err_angular_vel = angular_vel \
           - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))
 
         M = - kori * err_pose - kw * err_angular_vel \
           + torch.cross(angular_vel, torch.mm(self.J, angular_vel))
-        temp_M = torch.mm(hat(angular_vel),
+        temp_M = torch.mm(torch.squeeze(vec2skew(torch.t(angular_vel))),
                            torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))) \
                             - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_acc))
         M = (M - torch.mm(self.J, temp_M)).reshape(-1)

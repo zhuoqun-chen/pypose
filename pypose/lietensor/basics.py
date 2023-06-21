@@ -40,6 +40,39 @@ def vec2skew(input:torch.Tensor) -> torch.Tensor:
                         torch.stack([ v[...,2],         O, -v[...,0]], dim=-1),
                         torch.stack([-v[...,1],  v[...,0],         O], dim=-1)], dim=-2)
 
+def skew2vec(input:torch.Tensor) -> torch.Tensor:
+    r"""
+    Convert batched skew matrices to vectors.
+
+    Args:
+        input (Tensor): the skew matrices :math:`\mathbf{x}` to convert.
+
+    Return:
+        Tensor: the tensor :math:`\mathbf{y}`.
+
+    Shape:
+        Input: :obj:`(*, 3, 3)`
+
+        Output: :obj:`(*, 3)`
+
+    .. math::
+        {\displaystyle \mathbf{y}_i={\begin{bmatrix}\!-x_{i,2,3}
+        \\\,\,\,x_{i,1,2}\\\!-x_{i,1, 1}\end{bmatrix}}}
+
+    Note:
+        The last 2 dimension of the input tensor has to be (3, 3).
+
+    Example:
+        >>> pp.skew2vec(torch.randn(1, 3, 3))
+        tensor([[-0.2929, -1.2761, 2.2059]])
+    """
+    v = input.tensor() if hasattr(input, 'ltype') else input
+    assert v.shape[-2:] == (3, 3), "Last 2 dim should be (3, 3)"
+    assert torch.equal(v.permute(0, 2, 1), -v), "Each matrix must be a skew matrix"
+    return torch.stack([torch.stack([-v[..., 1, 2]], dim=-1),
+                        torch.stack([ v[..., 0, 2]], dim=-1),
+                        torch.stack([-v[..., 0, 1]], dim=-1)], dim=-1)
+
 
 def add_(input, other, alpha=1):
     r'''
