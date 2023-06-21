@@ -4,9 +4,9 @@ from examples.module.controller_parameters_tuner.commons \
   import hat, vee, quaternion_2_rotation_matrix
 
 
-class SE3Controller(Controller):
+class GeometricController(Controller):
     def __init__(self, mass, J, e3, g = 9.81):
-        super(SE3Controller, self).__init__()
+        super(GeometricController, self).__init__()
         self.e3 = e3.double()
         self.g = g
         self.m = mass
@@ -40,7 +40,7 @@ class SE3Controller(Controller):
         # compute the desired thrust
         b3_des = - kp * err_position - kv * err_vel - self.m * self.g * self.e3 \
           + self.m * desired_acceleration
-        f = -torch.mm(b3_des.T, torch.mm(Rwb, self.e3))
+        f = -torch.mm(b3_des.T, torch.mm(Rwb, self.e3)).reshape(-1)
 
         # compute the desired torque
         err_pose = (torch.mm(desired_pose.T, Rwb) - torch.mm(Rwb.T, desired_pose))
@@ -53,8 +53,7 @@ class SE3Controller(Controller):
         temp_M = torch.mm(hat(angular_vel),
                            torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_vel))) \
                             - torch.mm(Rwb.T, torch.mm(desired_pose, desired_angular_acc))
-        M = M - torch.mm(self.J, temp_M)
+        M = (M - torch.mm(self.J, temp_M)).reshape(-1)
 
-        return torch.concat(
-          [torch.max(torch.tensor([0.], device=device), f[0]), M[0], M[1], M[2]]
-        )
+        zero_force_tensor = torch.tensor([0.], device=device)
+        return torch.concat([torch.max(zero_force_tensor, f), M])
