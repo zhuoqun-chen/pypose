@@ -3,7 +3,7 @@ import torch
 import pypose as pp
 from pypose.module.controllers.geometric_controller import GeometricController
 from examples.module.dynamics.multicopter import MultiCopter
-from pypose.optim.controller_parameters_tuner import ControllerParametersTuner
+from pypose.module.controller_parameters_tuner import ControllerParametersTuner
 from examples.module.controller_parameters_tuner.commons \
   import quaternion_2_rotation_matrix, rotation_matrix_2_quaternion
 

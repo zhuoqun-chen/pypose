@@ -9,3 +9,4 @@ from .imu_preintegrator import IMUPreintegrator
 from .pnp import EPnP
 from .icp import ICP
 from .controller import Controller
+from .controller_parameters_tuner import ControllerParametersTuner
