@@ -15,10 +15,10 @@ class MultiCopter(NLS):
         self.tau = dt
 
     def state_transition(self, state, input, t=None):
-        k1 = self.derivative(state, input)
-        k2 = self.derivative(self.euler_update(state, k1, t / 2), input)
-        k3 = self.derivative(self.euler_update(state, k2, t / 2), input)
-        k4 = self.derivative(self.euler_update(state, k3, t), input)
+        k1 = self.xdot(state, input)
+        k2 = self.xdot(self.euler_update(state, k1, t / 2), input)
+        k3 = self.xdot(self.euler_update(state, k2, t / 2), input)
+        k4 = self.xdot(self.euler_update(state, k3, t), input)
 
         return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
 
@@ -45,7 +45,7 @@ class MultiCopter(NLS):
             ]
         )
 
-    def derivative(self, state, input):
+    def xdot(self, state, input):
         position, pose, vel, angular_speed = state[0:3], state[3:7], \
             state[7:10], state[10:13]
         thrust, M = input[0], input[1:4]

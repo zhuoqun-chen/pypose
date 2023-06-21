@@ -121,8 +121,7 @@ def func_to_get_state_error(state, ref_state):
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description='Cartpole Example')
+    parser = argparse.ArgumentParser(description='Multicopter Controller Tuner Example')
     parser.add_argument("--device", type=str, default='cpu', help="cuda or cpu")
     parser.add_argument("--save", type=str, default='./examples/module/dynamics/save/',
                         help="location of png files to save")
@@ -137,27 +136,10 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.05
     learning_rate = 0.01
-    initial_state = torch.tensor([
-        torch.tensor(0.), # position.x
-        torch.tensor(0.), # position.y
-        torch.tensor(0.), # position.z
-        torch.tensor(1.), # quaternion.w
-        torch.tensor(0.), # quaternion.x
-        torch.tensor(0.), # quaternion.y
-        torch.tensor(0.), # quaternion.z
-        torch.tensor(0.), # vel.x
-        torch.tensor(0.), # vel.y
-        torch.tensor(0.), # vel.z
-        torch.tensor(0.), # anguler_vel.x
-        torch.tensor(0.), # anguler_vel.y
-        torch.tensor(0.)] # anguler_vel.z
-      , device=args.device).double()
-    initial_controller_parameters = torch.tensor([
-        torch.tensor(1.),
-        torch.tensor(1.),
-        torch.tensor(1.),
-        torch.tensor(1.)]
-      , device=args.device).double()
+
+    initial_state = torch.zeros(13, device=args.device).double()
+    initial_state[3] = 1
+    initial_controller_parameters = torch.ones(4, device=args.device).double()
 
     points = torch.tensor([[[0., 0., 0.],
                             [1., 1., -2],
@@ -172,35 +154,32 @@ if __name__ == "__main__":
         torch.tensor([0.]),
         torch.tensor([1.])]
       ).to(device=args.device).double()
-    multicopter = MultiCopter(time_interval,
-                               0.6,
-                               torch.tensor(g),
-                               torch.tensor([
-                                  [0.0829, 0., 0.],
-                                  [0, 0.0845, 0],
-                                  [0, 0, 0.1377]
-                                ], device=args.device),
-                                e3)
+    inertia = torch.tensor([
+                            [0.0829, 0., 0.],
+                            [0, 0.0845, 0],
+                            [0, 0, 0.1377]
+                          ], device=args.device)
+    multicopter = MultiCopter(time_interval, 0.6, torch.tensor(g), inertia, e3)
 
     # start to tune the controller parameters
-    max_tuning_iterations = 30
-    tuning_times = 0
     tuner = ControllerParametersTuner(learning_rate=learning_rate, device=args.device)
 
-    controller = SE3Controller(multicopter.m, multicopter.J, e3)
+    controller = GeometricController(multicopter.m, multicopter.J, e3)
     controller_parameters = torch.clone(initial_controller_parameters)
 
     # only tune positions
     states_to_tune = torch.zeros([len(initial_state), len(initial_state)]
         , device=args.device)
+    # only to tune the controller parameters dependending on the position error
     states_to_tune[0, 0] = 1
     states_to_tune[1, 1] = 1
     states_to_tune[2, 2] = 1
 
-    print("Original Loss: ", compute_loss(multicopter, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval))
-
-    while tuning_times < max_tuning_iterations:
+    last_loss_after_tuning = compute_loss(multicopter, controller, controller_parameters,
+                                     initial_state, ref_states, time_interval)
+    print("Original Loss: ", last_loss_after_tuning)
+    meet_termination_condition = False
+    while not meet_termination_condition:
         controller_parameters = tuner.tune(
           multicopter,
           initial_state,
@@ -213,7 +192,13 @@ if __name__ == "__main__":
           states_to_tune,
           func_to_get_state_error
         )
-        tuning_times += 1
         print("Controller parameters: ", controller_parameters)
-        print("Loss: ", compute_loss(multicopter, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval))
+        loss = compute_loss(multicopter, controller, controller_parameters,
+                                     initial_state, ref_states, time_interval)
+        print("Loss: ", loss)
+
+        if (last_loss_after_tuning - loss) < 0.001:
+            meet_termination_condition = True
+            print("Meet tuning termination condition, terminated.")
+        else:
+            last_loss_after_tuning = loss

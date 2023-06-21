@@ -88,7 +88,7 @@ def func_to_get_state_error(state, ref_state):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Cartpole Example')
+    parser = argparse.ArgumentParser(description='Dubincar Controller Tuner Example')
     parser.add_argument("--device", type=str, default='cpu', help="cuda or cpu")
     parser.add_argument("--save", type=str, default='./examples/module/dynamics/save/',
                         help="location of png files to save")
@@ -101,8 +101,10 @@ if __name__ == "__main__":
     # program parameters
     time_interval = 0.1
     learning_rate = 0.5
-    initial_state = torch.tensor([0, 0, 0, 0, 0], device=args.device).double()
-    initial_controller_parameters = torch.tensor([2., 1., 1., 1.], device=args.device).double()
+    # states tensor: x position, y position, orientation, velocity, angular_velocity
+    initial_state = torch.zeros(5, device=args.device).double()
+    # controller parameters: kp_position, kp_velocity, kp_orientation, kp_angular_velocity
+    initial_controller_parameters = torch.ones(4, device=args.device).double()
 
     points = torch.tensor([[[0., 0., 0.],
                             [1., 0, 0],
@@ -117,24 +119,23 @@ if __name__ == "__main__":
     dubincar = DubinCar(time_interval)
 
     # start to tune the controller parameters
-    max_tuning_iterations = 30
-    tuning_times = 0
     tuner = ControllerParametersTuner(learning_rate=learning_rate, device=args.device)
 
     controller = DubinCarController()
     controller_parameters = torch.clone(initial_controller_parameters)
 
-
-    print("Original Loss: ", compute_loss(dubincar, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval))
-
-    # only tune positions
     states_to_tune = torch.zeros([len(initial_state), len(initial_state)]
       , device=args.device)
+    # only to tune the controller parameters dependending on the position error
     states_to_tune[0, 0] = 1
     states_to_tune[1, 1] = 1
 
-    while tuning_times < max_tuning_iterations:
+    last_loss_after_tuning = compute_loss(dubincar, controller, controller_parameters,
+                                     initial_state, ref_states, time_interval)
+    print("Original Loss: ", last_loss_after_tuning)
+
+    meet_termination_condition = False
+    while not meet_termination_condition:
         controller_parameters = tuner.tune(
           dubincar,
           initial_state,
@@ -147,7 +148,14 @@ if __name__ == "__main__":
           states_to_tune,
           func_to_get_state_error
         )
-        tuning_times += 1
         print("Controller parameters: ", controller_parameters)
-        print("Loss: ", compute_loss(dubincar, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval))
+
+        loss = compute_loss(dubincar, controller, controller_parameters,
+                            initial_state, ref_states, time_interval)
+        print("Loss: ", loss)
+
+        if (last_loss_after_tuning - loss) < 0.001:
+            meet_termination_condition = True
+            print("Meet tuning termination condition, terminated.")
+        else:
+            last_loss_after_tuning = loss
