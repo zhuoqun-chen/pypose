@@ -83,7 +83,7 @@ def get_ref_states(initial_state, waypoints, dt):
     return ref_states
 
 
-def compute_loss(dynamic_system, controller, controller_parameters,
+def compute_loss(dynamic_system, controller, controller_parameters, penalty_coefficient,
                  initial_state, ref_states, dt):
     loss = 0
     system_state = torch.clone(initial_state)
@@ -103,6 +103,8 @@ def compute_loss(dynamic_system, controller, controller_parameters,
       loss += torch.norm(
         ref_position - position
       )
+
+      loss += penalty_coefficient * torch.norm(controller_input)
     return loss / len(ref_states)
 
 
@@ -162,7 +164,10 @@ if __name__ == "__main__":
     multicopter = MultiCopter(time_interval, 0.6, torch.tensor(g), inertia, e3)
 
     # start to tune the controller parameters
-    tuner = ControllerParametersTuner(learning_rate=learning_rate, device=args.device)
+    penalty_coefficient = 0.001
+    tuner = ControllerParametersTuner(learning_rate=learning_rate,
+                                      penalty_coefficient=penalty_coefficient,
+                                      device=args.device)
 
     controller = GeometricController(multicopter.m, multicopter.J, e3)
     controller_parameters = torch.clone(initial_controller_parameters)
@@ -176,7 +181,7 @@ if __name__ == "__main__":
     states_to_tune[2, 2] = 1
 
     last_loss_after_tuning = compute_loss(multicopter, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval)
+                                          penalty_coefficient, initial_state, ref_states, time_interval)
     print("Original Loss: ", last_loss_after_tuning)
     meet_termination_condition = False
     while not meet_termination_condition:
@@ -193,7 +198,7 @@ if __name__ == "__main__":
           func_to_get_state_error
         )
         print("Controller parameters: ", controller_parameters)
-        loss = compute_loss(multicopter, controller, controller_parameters,
+        loss = compute_loss(multicopter, controller, controller_parameters, penalty_coefficient,
                                      initial_state, ref_states, time_interval)
         print("Loss: ", loss)
 

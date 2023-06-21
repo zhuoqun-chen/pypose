@@ -51,7 +51,8 @@ def get_ref_states(waypoints, dt, device):
     return car_desired_states
 
 
-def compute_loss(dynamic_system, controller, controller_parameters, initial_state, ref_states, dt):
+def compute_loss(dynamic_system, controller, controller_parameters, penalty_coefficient,
+                 initial_state, ref_states, dt):
     loss = 0
     system_state = torch.clone(initial_state)
     for index, ref_state in enumerate(ref_states):
@@ -68,6 +69,7 @@ def compute_loss(dynamic_system, controller, controller_parameters, initial_stat
       loss += torch.norm(
         ref_position - torch.stack([position_x, position_y])
       )
+      loss += penalty_coefficient * torch.norm(controller_input)
     return loss / len(ref_states)
 
 
@@ -100,7 +102,7 @@ if __name__ == "__main__":
 
     # program parameters
     time_interval = 0.1
-    learning_rate = 0.5
+    learning_rate = 0.05
     # states tensor: x position, y position, orientation, velocity, angular_velocity
     initial_state = torch.zeros(5, device=args.device).double()
     # controller parameters: kp_position, kp_velocity, kp_orientation, kp_angular_velocity
@@ -119,7 +121,10 @@ if __name__ == "__main__":
     dubincar = DubinCar(time_interval)
 
     # start to tune the controller parameters
-    tuner = ControllerParametersTuner(learning_rate=learning_rate, device=args.device)
+    penalty_coefficient = 0.001
+    tuner = ControllerParametersTuner(learning_rate=learning_rate,
+                                      penalty_coefficient=penalty_coefficient,
+                                      device=args.device)
 
     controller = DubinCarController()
     controller_parameters = torch.clone(initial_controller_parameters)
@@ -131,7 +136,7 @@ if __name__ == "__main__":
     states_to_tune[1, 1] = 1
 
     last_loss_after_tuning = compute_loss(dubincar, controller, controller_parameters,
-                                     initial_state, ref_states, time_interval)
+                                          penalty_coefficient, initial_state, ref_states, time_interval)
     print("Original Loss: ", last_loss_after_tuning)
 
     meet_termination_condition = False
@@ -150,11 +155,11 @@ if __name__ == "__main__":
         )
         print("Controller parameters: ", controller_parameters)
 
-        loss = compute_loss(dubincar, controller, controller_parameters,
+        loss = compute_loss(dubincar, controller, controller_parameters, penalty_coefficient,
                             initial_state, ref_states, time_interval)
         print("Loss: ", loss)
 
-        if (last_loss_after_tuning - loss) < 0.001:
+        if (last_loss_after_tuning - loss) < 0.0001:
             meet_termination_condition = True
             print("Meet tuning termination condition, terminated.")
         else:
