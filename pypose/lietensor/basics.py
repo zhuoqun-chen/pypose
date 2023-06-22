@@ -40,6 +40,7 @@ def vec2skew(input:torch.Tensor) -> torch.Tensor:
                         torch.stack([ v[...,2],         O, -v[...,0]], dim=-1),
                         torch.stack([-v[...,1],  v[...,0],         O], dim=-1)], dim=-2)
 
+
 def skew2vec(input:torch.Tensor) -> torch.Tensor:
     r"""
     Convert batched skew matrices to vectors.
