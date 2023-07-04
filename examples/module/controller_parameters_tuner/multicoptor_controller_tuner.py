@@ -1,7 +1,7 @@
 import argparse, os
 import torch
 import pypose as pp
-from pypose.module.controllers.geometric_controller import GeometricController
+from pypose.module.geometric_controller import GeometricController
 from examples.module.dynamics.multicopter import MultiCopter
 from pypose.module.controller_parameters_tuner import ControllerParametersTuner
 
