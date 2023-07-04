@@ -4,18 +4,16 @@ import pypose as pp
 from pypose.module.controllers.geometric_controller import GeometricController
 from examples.module.dynamics.multicopter import MultiCopter
 from pypose.module.controller_parameters_tuner import ControllerParametersTuner
-from examples.module.controller_parameters_tuner.commons \
-  import quaternion_2_rotation_matrix, rotation_matrix_2_quaternion
 
 
 def get_ref_states(initial_state, waypoints, dt):
     device = initial_state.device
 
-    pose = torch.t(torch.atleast_2d(initial_state[3:7]))
+    pose = torch.atleast_2d(initial_state[3:7])
 
     # get ref states
     ref_states = []
-    last_ref_pose = quaternion_2_rotation_matrix(pose)
+    last_ref_pose = pp.LieTensor(pose, ltype=pp.SO3_type).matrix()[0]
     last_ref_angle_dot = torch.zeros(3, device=device).double()
     last_ref_angle_ddot = torch.zeros(3, device=device).double()
     ref_states.append(
@@ -112,10 +110,12 @@ def func_to_get_state_error(state, ref_state):
     ref_position, ref_velocity, ref_acceleration, \
       ref_pose, ref_angular_vel, ref_angular_acc = ref_state
 
+    ref_pose_SO3 = pp.from_matrix(ref_pose, ltype=pp.SO3_type).tensor()
+
     return state - torch.concat(
        [
           ref_position,
-          torch.squeeze(torch.t(rotation_matrix_2_quaternion(ref_pose))),
+          ref_pose_SO3,
           ref_velocity,
           ref_angular_vel
        ]
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     learning_rate = 0.01
 
     initial_state = torch.zeros(13, device=args.device).double()
-    initial_state[3] = 1
+    initial_state[6] = 1
     initial_controller_parameters = torch.ones(4, device=args.device).double()
 
     points = torch.tensor([[[0., 0., 0.],

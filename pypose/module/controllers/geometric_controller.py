@@ -1,8 +1,7 @@
 import torch
+import pypose as pp
 from pypose.lietensor.basics import vec2skew, skew2vec
 from pypose.module.controller import Controller
-from examples.module.controller_parameters_tuner.commons \
-  import quaternion_2_rotation_matrix
 
 
 class GeometricController(Controller):
@@ -27,12 +26,12 @@ class GeometricController(Controller):
         # extract parameters
         kp, kv, kori, kw = parameters
 
-        pose = torch.t(torch.atleast_2d(pose))
+        pose = torch.atleast_2d(pose)
         angular_vel = torch.t(torch.atleast_2d(angular_vel))
         desired_angular_vel = torch.t(torch.atleast_2d(desired_angular_vel))
         desired_angular_acc = torch.t(torch.atleast_2d(desired_angular_acc))
 
-        Rwb = quaternion_2_rotation_matrix(pose)
+        Rwb = pp.LieTensor(pose, ltype=pp.SO3_type).matrix()[0]
 
         err_position = torch.t(torch.atleast_2d(position - desired_position))
         err_vel = torch.t(torch.atleast_2d(vel - desired_velocity))

@@ -1,7 +1,7 @@
 import torch
+import pypose as pp
 from pypose.module.dynamics import NLS
-from examples.module.controller_parameters_tuner.commons \
-    import quaternion_2_rotation_matrix
+from pypose.lietensor import LieTensor
 
 def angular_vel_2_quaternion_dot(quaternion, w):
     device = quaternion.device
@@ -9,10 +9,10 @@ def angular_vel_2_quaternion_dot(quaternion, w):
     zero_t = torch.tensor([0.], device=device)
     return -0.5 * torch.mm(torch.squeeze(torch.stack(
         [
-            torch.stack([zero_t, p, q, r], dim=-1),
-            torch.stack([-p, zero_t, -r, q], dim=-1),
-            torch.stack([-q, r, zero_t, -p], dim=-1),
-            torch.stack([-r, -q, p, zero_t], dim=-1)
+            torch.stack([zero_t, -r, q, -p], dim=-1),
+            torch.stack([r, zero_t, -p, -q], dim=-1),
+            torch.stack([-q, p, zero_t, -r], dim=-1),
+            torch.stack([p, q, r, zero_t], dim=-1)
         ])), quaternion)
 
 class MultiCopter(NLS):
@@ -63,9 +63,10 @@ class MultiCopter(NLS):
 
         # convert the 1d row vector to 2d column vector
         M = torch.t(torch.atleast_2d(M))
-        pose = torch.t(torch.atleast_2d(pose))
-
-        pose_in_R = quaternion_2_rotation_matrix(pose)
+        pose = torch.atleast_2d(pose)
+        pose_SO3 = LieTensor(pose, ltype=pp.SO3_type)
+        pose_in_R = pose_SO3.matrix()[0]
+        pose = torch.t(pose)
 
         acceleration = (torch.mm(pose_in_R, -thrust * self.e3)
                         + self.m * self.g * self.e3) / self.m
