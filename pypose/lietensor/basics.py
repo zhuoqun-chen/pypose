@@ -69,7 +69,7 @@ def skew2vec(input:torch.Tensor) -> torch.Tensor:
     """
     v = input.tensor() if hasattr(input, 'ltype') else input
     assert v.shape[-2:] == (3, 3), "Last 2 dim should be (3, 3)"
-    # assert torch.equal(v.permute(0, 2, 1), -v), "Each matrix must be a skew matrix"
+    assert torch.equal(v.permute(0, 2, 1), -v), "Each matrix must be a skew matrix"
     return torch.stack([torch.stack([-v[..., 1, 2]], dim=-1),
                         torch.stack([ v[..., 0, 2]], dim=-1),
                         torch.stack([-v[..., 0, 1]], dim=-1)], dim=-1)
