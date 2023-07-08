@@ -41,12 +41,14 @@ def vec2skew(input:torch.Tensor) -> torch.Tensor:
                         torch.stack([-v[...,1],  v[...,0],         O], dim=-1)], dim=-2)
 
 
-def skew2vec(input:torch.Tensor) -> torch.Tensor:
+def skew2vec(input:torch.Tensor, rtol=1e-5, atol=1e-5) -> torch.Tensor:
     r"""
     Convert batched skew matrices to vectors.
 
     Args:
         input (Tensor): the skew matrices :math:`\mathbf{x}` to convert.
+        rtol (float, optional): relative tolerance when check is enabled. Default: 1e-05
+        atol (float, optional): absolute tolerance when check is enabled. Default: 1e-05
 
     Return:
         Tensor: the tensor :math:`\mathbf{y}`.
@@ -69,7 +71,7 @@ def skew2vec(input:torch.Tensor) -> torch.Tensor:
     """
     v = input.tensor() if hasattr(input, 'ltype') else input
     assert v.shape[-2:] == (3, 3), "Last 2 dim should be (3, 3)"
-    assert torch.equal(v.permute(0, 2, 1), -v), "Each matrix must be a skew matrix"
+    assert torch.allclose(v.permute(0, 2, 1), -v, rtol=rtol, atol=atol), "Each matrix must be a skew matrix"
     return torch.stack([torch.stack([-v[..., 1, 2]], dim=-1),
                         torch.stack([ v[..., 0, 2]], dim=-1),
                         torch.stack([-v[..., 0, 1]], dim=-1)], dim=-1)
