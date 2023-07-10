@@ -112,7 +112,8 @@ class ControllerParametersTuner(nn.Module):
             dynamic_system (pypose.module.dynamics): dynamics system
             initial_state (Tensor): 1d tensor representing the states of the dynamic system
             ref_states (object): these reference states are defined by the user and no need to be specific formation,
-                but it has to be able to be used by the controller anf function func_get_state_error.
+                but it has to be able to be used by the controller anf function func_get_state_error. In this function, we assume the first reference state
+                should not be equal to the system initial state.
             controller (pypose.module.controller): Linear or nonlinear controller to control the dynamic system
             parameters (Tensor): 1d tensor represent the controller parameters
             parameters_tuning_set (Tensor): This set gives the minimum and the maximum

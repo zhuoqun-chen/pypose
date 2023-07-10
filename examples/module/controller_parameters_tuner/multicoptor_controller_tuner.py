@@ -1,6 +1,7 @@
-import argparse, os
 import torch
+import argparse, os
 import pypose as pp
+import matplotlib.pyplot as plt
 from pypose.module.geometric_controller import GeometricController
 from examples.module.dynamics.multicopter import MultiCopter
 from pypose.module.controller_parameters_tuner import ControllerParametersTuner
@@ -16,12 +17,7 @@ def get_ref_states(initial_state, waypoints, dt):
     last_ref_pose = pp.LieTensor(pose, ltype=pp.SO3_type).matrix()[0]
     last_ref_angle_dot = torch.zeros(3, device=device).double()
     last_ref_angle_ddot = torch.zeros(3, device=device).double()
-    ref_states.append(
-      (torch.zeros(3, device=device).double(),
-      torch.zeros(3, device=device).double(),
-      torch.zeros(3, device=device).double(),
-      last_ref_pose, last_ref_angle_dot, last_ref_angle_ddot)
-    )
+    last_velocity_tensor = torch.zeros(3, device=device).double()
 
     gravity_acc_tensor = torch.stack([
         torch.tensor(0., device=device),
@@ -40,11 +36,9 @@ def get_ref_states(initial_state, waypoints, dt):
              waypoints[index][2]]).double()
 
         # velocity computation
-        # last_position_tensor = ref_states[index][0]
         velocity_tensor = (position_tensor - last_position_tensor) / dt
 
         # acceleration computation
-        last_velocity_tensor = ref_states[index][1]
         raw_acc_tensor = (velocity_tensor - last_velocity_tensor) / dt
 
         # minus gravity acc if choose upwards as the positive z-axis
@@ -77,9 +71,21 @@ def get_ref_states(initial_state, waypoints, dt):
         last_ref_pose = pose
         last_ref_angle_dot = angle_dot
         last_ref_angle_ddot = angle_ddot
+        last_velocity_tensor = velocity_tensor
 
     return ref_states
 
+def run(dynamic_system, controller, controller_parameters, initial_state, ref_states, dt):
+    system_states = []
+    system_state = torch.clone(initial_state)
+    system_states.append(system_state)
+    for index, ref_state in enumerate(ref_states):
+        controller_input = controller.get_control(controller_parameters, system_state, ref_state, None)
+        system_new_state = dynamic_system.state_transition(system_state, controller_input, dt)
+
+        system_state = system_new_state
+        system_states.append(system_state)
+    return system_states
 
 def compute_loss(dynamic_system, controller, controller_parameters, penalty_coefficient,
                  initial_state, ref_states, dt):
@@ -121,11 +127,29 @@ def func_to_get_state_error(state, ref_state):
        ]
     )
 
+def get_sub_states(input_states, sub_state_index):
+    sub_states = []
+    for states in input_states:
+        sub_states.append(states[sub_state_index].detach().cpu().item())
+    return sub_states
+
+def get_sub_ref_states(input_states, sub_state_index, tensor_item_index):
+    sub_states = []
+    for states in input_states:
+        sub_states.append(states[sub_state_index][tensor_item_index].detach().cpu().item())
+    return sub_states
+
+def subPlot(ax, x, y, y_ref, xlabel=None, ylabel=None):
+    ax.plot(x, y, label='result')
+    ax.plot(x, y_ref, label='reference')
+    ax.legend()
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Multicopter Controller Tuner Example')
     parser.add_argument("--device", type=str, default='cpu', help="cuda or cpu")
-    parser.add_argument("--save", type=str, default='./examples/module/dynamics/save/',
+    parser.add_argument("--save", type=str, default='./examples/module/controller_parameters_tuner/save/',
                         help="location of png files to save")
     parser.add_argument('--show', dest='show', action='store_true',
                         help="show plot, default: False")
@@ -207,3 +231,38 @@ if __name__ == "__main__":
             print("Meet tuning termination condition, terminated.")
         else:
             last_loss_after_tuning = loss
+
+    # plot the result
+    # get the result with original and tuned controller parameters
+    original_system_states = run(multicopter, controller, torch.clone(initial_controller_parameters),
+                                initial_state, ref_states, time_interval)
+    new_system_states = run(multicopter, controller, controller_parameters, initial_state,
+                            ref_states, time_interval)
+    #insert intial reference state
+    # get ref states
+    initial_pose = torch.atleast_2d(torch.tensor([0, 0, 0, 1], device=args.device))
+    # get ref states
+    last_ref_pose = pp.LieTensor(initial_pose, ltype=pp.SO3_type).matrix()[0]
+    last_ref_angle_dot = torch.zeros(3, device=args.device).double()
+    last_ref_angle_ddot = torch.zeros(3, device=args.device).double()
+    ref_states.insert(0,
+      (torch.zeros(3, device=args.device).double(),
+      torch.zeros(3, device=args.device).double(),
+      torch.zeros(3, device=args.device).double(),
+      last_ref_pose, last_ref_angle_dot, last_ref_angle_ddot)
+    )
+
+    time = torch.arange(0, len(points[0]) - 1 + time_interval, time_interval).numpy()
+    f, ax = plt.subplots(nrows=6, ncols=1, sharex=True)
+    subPlot(ax[0], time, get_sub_states(original_system_states, 0), get_sub_ref_states(ref_states, 0, 0), ylabel='X position')
+    subPlot(ax[1], time, get_sub_states(original_system_states, 1), get_sub_ref_states(ref_states, 0, 1), ylabel='Y position')
+    subPlot(ax[2], time, get_sub_states(original_system_states, 2), get_sub_ref_states(ref_states, 0, 2), ylabel='Z position')
+    subPlot(ax[3], time, get_sub_states(new_system_states, 0), get_sub_ref_states(ref_states, 0, 0), ylabel='X after tuning')
+    subPlot(ax[4], time, get_sub_states(new_system_states, 1), get_sub_ref_states(ref_states, 0, 1), ylabel='Y after tuning')
+    subPlot(ax[5], time, get_sub_states(new_system_states, 2), get_sub_ref_states(ref_states, 0, 2), ylabel='Z after tuning')
+    figure = os.path.join(args.save + 'multicoptor_controller_tuner.png')
+    plt.savefig(figure)
+    print("Saved to", figure)
+
+    if args.show:
+        plt.show()
