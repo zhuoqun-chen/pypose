@@ -2,9 +2,8 @@ import torch
 from pypose.module.dynamics import NLS
 
 class DubinCar(NLS):
-    def __init__(self, dt):
+    def __init__(self):
         super(DubinCar, self).__init__()
-        self.tau = dt
 
     # Use RK4 to infer the k+1 state
     def state_transition(self, state, input, t=None):

@@ -31,7 +31,7 @@ class GeometricController(PID):
         desired_angular_vel = torch.t(torch.atleast_2d(desired_angular_vel))
         desired_angular_acc = torch.t(torch.atleast_2d(desired_angular_acc))
 
-        Rwb = pp.LieTensor(pose, ltype=pp.SO3_type).matrix()[0]
+        Rwb = pp.LieTensor(pose, ltype=pp.SO3_type).matrix()[0].T
 
         err_position = torch.t(torch.atleast_2d(position - desired_position))
         err_vel = torch.t(torch.atleast_2d(vel - desired_velocity))

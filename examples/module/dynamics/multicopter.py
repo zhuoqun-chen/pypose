@@ -16,14 +16,13 @@ def angular_vel_2_quaternion_dot(quaternion, w):
         ])), quaternion)
 
 class MultiCopter(NLS):
-    def __init__(self, dt, mass, g, J, e3):
+    def __init__(self, mass, g, J, e3):
         super(MultiCopter, self).__init__()
         self.m = mass
         self.J = J.double()
         self.J_inverse = torch.inverse(self.J)
         self.g = g
         self.e3 = e3
-        self.tau = dt
 
     def state_transition(self, state, input, t=None):
         return self.rk4(state, input, t)
@@ -41,7 +40,6 @@ class MultiCopter(NLS):
         k4 = self.xdot(k3_state, input)
 
         return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * t
-
 
 
     def observation(self, state, input, t=None):
@@ -76,19 +74,19 @@ class MultiCopter(NLS):
         M = torch.t(torch.atleast_2d(M))
         pose = torch.atleast_2d(pose)
         pose_SO3 = LieTensor(pose, ltype=pp.SO3_type)
-        pose_in_R = pose_SO3.matrix()[0]
-        pose = torch.t(pose)
+        Rwb = pose_SO3.matrix()[0].T
 
-        acceleration = (torch.mm(pose_in_R, -thrust * self.e3)
+        acceleration = (torch.mm(Rwb, -thrust * self.e3)
                         + self.m * self.g * self.e3) / self.m
 
         angular_speed = torch.t(torch.atleast_2d(angular_speed))
         w_dot = torch.mm(self.J_inverse,
                         M - torch.cross(angular_speed, torch.mm(self.J, angular_speed)))
 
+        # transfer angular_speed from body frame to world frame
         return torch.concat([
                 vel,
-                torch.squeeze(torch.t(angular_vel_2_quaternion_dot(pose, angular_speed))),
+                torch.squeeze(torch.t(angular_vel_2_quaternion_dot(pose.T, angular_speed))),
                 torch.squeeze(torch.t(acceleration)),
                 torch.squeeze(torch.t(w_dot))
             ]
