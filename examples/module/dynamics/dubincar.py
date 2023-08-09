@@ -8,12 +8,21 @@ class DubinCar(NLS):
 
     # Use RK4 to infer the k+1 state
     def state_transition(self, state, input, t=None):
-        k1 = self.xdot(state, input)
-        k2 = self.xdot(self.euler_update(state, k1, self.tau / 2), input)
-        k3 = self.xdot(self.euler_update(state, k2, self.tau / 2), input)
-        k4 = self.xdot(self.euler_update(state, k3, self.tau), input)
+        return self.rk4(state, input, t)
 
-        return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * self.tau
+    def rk4(self, state, input, t=None):
+        k1 = self.xdot(state, input)
+        k1_state = self.euler_update(state, k1, t / 2)
+
+        k2 = self.xdot(k1_state, input)
+        k2_state = self.euler_update(state, k2, t / 2)
+
+        k3 = self.xdot(k2_state, input)
+        k3_state = self.euler_update(state, k3, t)
+
+        k4 = self.xdot(k3_state, input)
+
+        return state + (k1 + 2 * k2 + 2 * k3 + k4) / 6 * t
 
     def observation(self, state, input, t=None):
         return state

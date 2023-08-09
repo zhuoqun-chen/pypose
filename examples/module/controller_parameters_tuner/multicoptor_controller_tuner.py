@@ -171,7 +171,7 @@ if __name__ == "__main__":
                             [1., 1., -2],
                             [3., 3., -4]]], device=args.device)
 
-    waypoints = pp.CSplineR3(points, time_interval)[0]
+    waypoints = pp.chspline(points, time_interval)[0]
 
     ref_states = get_ref_states(initial_state, waypoints, time_interval)
 
