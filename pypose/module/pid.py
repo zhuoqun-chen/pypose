@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 
-class Controller(nn.Module):
+class PID(nn.Module):
     r"""
     This class is the basic class for all controller implementations.
     """

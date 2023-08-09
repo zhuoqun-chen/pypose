@@ -1,10 +1,10 @@
 import torch
 import pypose as pp
 from pypose.lietensor.basics import vec2skew, skew2vec
-from pypose.module.controller import Controller
+from pypose.module.pid import PID
 
 
-class GeometricController(Controller):
+class GeometricController(PID):
     def __init__(self, mass, J, e3, g = 9.81):
         super(GeometricController, self).__init__()
         self.e3 = e3.double()

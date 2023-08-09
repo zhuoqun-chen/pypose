@@ -8,5 +8,5 @@ from .dynamics import System, LTI, LTV, NLS
 from .imu_preintegrator import IMUPreintegrator
 from .pnp import EPnP
 from .icp import ICP
-from .controller import Controller
+from .pid import PID
 from .controller_parameters_tuner import ControllerParametersTuner

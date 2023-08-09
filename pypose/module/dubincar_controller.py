@@ -1,7 +1,7 @@
 import torch
-from pypose.module.controller import Controller
+from pypose.module.pid import PID
 
-class DubinCarController(Controller):
+class DubinCarController(PID):
     def __init__(self):
         super(DubinCarController, self).__init__()
 
