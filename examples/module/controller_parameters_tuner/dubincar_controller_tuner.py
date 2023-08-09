@@ -124,7 +124,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(args.save), exist_ok=True)
 
     # program parameters
-    time_interval = 0.1
+    time_interval = 0.02
     learning_rate = 0.005
     # states tensor: x position, y position, orientation, velocity, angular_velocity
     initial_state = torch.zeros(5, device=args.device).double()

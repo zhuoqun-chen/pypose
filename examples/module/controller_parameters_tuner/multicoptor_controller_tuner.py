@@ -160,7 +160,7 @@ if __name__ == "__main__":
     g = 9.81
 
     # program parameters
-    time_interval = 0.05
+    time_interval = 0.02
     learning_rate = 0.01
 
     initial_state = torch.zeros(13, device=args.device).double()
